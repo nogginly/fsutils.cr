@@ -1,0 +1,13 @@
+name: fsutils
+version: 0.1.0
+license: MPL-2.0
+authors:
+  - nogginly <nogginly@icloud.com>
+
+description: File system utilities as Crystal helper classes for use without running shell commands.
+
+crystal: ">= 1.20.0"
+
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
