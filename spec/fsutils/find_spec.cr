@@ -49,6 +49,26 @@ private def names(paths)
   paths.map { |p| ::File.basename(p) }
 end
 
+# A synthetic entry, for exercising the filter predicate without a filesystem.
+private def entry(
+  name : String,
+  path : String? = nil,
+  type : FsUtils::Walk::EntryType = FsUtils::Walk::EntryType::File,
+  size : Int64 = 10_i64,
+  depth : Int32 = 1,
+  mtime : Time = Time.utc,
+) : FsUtils::Walk::Entry
+  FsUtils::Walk::Entry.new(
+    path: path || "/root/#{name}",
+    name: name,
+    type: type,
+    size: size,
+    modification_time: mtime,
+    depth: depth,
+    symlink: type.symlink?,
+  )
+end
+
 describe FsUtils::Find do
   it "finds files by name glob" do
     with_tree do |root|
@@ -91,7 +111,10 @@ describe FsUtils::Find do
       # The rest of the tree still gets a look in.
       names(paths).should contain "a.txt"
       names(paths).should contain "d.txt"
-      report.truncated?.should be_false
+      # Completed the walk, but `fat` was capped — so this is still a sample.
+      report.stop_reason.should eq FsUtils::Find::StopReason::Completed
+      report.dirs_capped.should be > 0
+      report.truncated?.should be_true
     end
   end
 
@@ -132,13 +155,13 @@ describe FsUtils::Find do
     end
   end
 
-  it "can exclude hidden files" do
+  it "excludes hidden entries by default" do
     with_tree do |root|
-      with_hidden, _ = collect(root, name: [".hidden.txt"])
-      with_hidden.size.should eq 1
-
-      without, _ = collect(root, name: [".hidden.txt"], include_hidden: false)
+      without, _ = collect(root, name: [".hidden.txt"])
       without.should be_empty
+
+      with_hidden, _ = collect(root, name: [".hidden.txt"], include_hidden: true)
+      with_hidden.size.should eq 1
     end
   end
 
@@ -202,5 +225,87 @@ describe FsUtils::Find do
   it "rejects nonsense arguments" do
     expect_raises(ArgumentError) { FsUtils::Find.new([] of String) }
     expect_raises(ArgumentError) { FsUtils::Find.new(".", max_matches: 0) }
+    expect_raises(ArgumentError) { FsUtils::Find.new(".", min_depth: -1) }
+  end
+
+  it "accepts several roots" do
+    with_tree do |root|
+      paths = [] of String
+      FsUtils::Find.new(
+        [::File.join(root, "sub"), ::File.join(root, "fat")],
+        name: ["c.cr", "fat_00.txt"]
+      ).run { |m| paths << m.path }
+
+      names(paths).sort.should eq %w[c.cr fat_00.txt]
+    end
+  end
+end
+
+# Hoisted into the namespace so the private filter predicate is visible. These
+# exercise the matching rules directly, without a filesystem in the way.
+module FsUtils
+  class Find
+    describe Criteria do
+      it "has no opinion when given no filters" do
+        Criteria.new.matches?(entry("anything.cr")).should be_true
+      end
+
+      it "ORs within a glob list and ANDs across lists" do
+        c = Criteria.new(name: ["*.cr", "*.md"], path: ["/root/*"])
+        c.matches?(entry("a.cr")).should be_true
+        c.matches?(entry("a.md")).should be_true
+        c.matches?(entry("a.txt")).should be_false
+        c.matches?(entry("a.cr", path: "/elsewhere/a.cr")).should be_false
+      end
+
+      it "matches path globs against the whole path, not the basename" do
+        # A single `*` does not cross a `/`, hence the leading `**/`.
+        Criteria.new(path: ["*.cr"]).matches?(entry("a.cr", path: "/root/src/a.cr")).should be_false
+        Criteria.new(path: ["**/a.cr"]).matches?(entry("a.cr", path: "/root/src/a.cr")).should be_true
+      end
+
+      it "excludes on either the name or the path" do
+        Criteria.new(exclude: ["*.cr"]).matches?(entry("a.cr")).should be_false
+        Criteria.new(exclude: ["**/vendor/**"])
+          .matches?(entry("a.cr", path: "/root/vendor/a.cr")).should be_false
+      end
+
+      it "lets exclude beat include" do
+        Criteria.new(name: ["*.cr"], exclude: ["a.*"]).matches?(entry("a.cr")).should be_false
+      end
+
+      it "filters by type" do
+        c = Criteria.new(type: Walk::EntryType::Directory)
+        c.matches?(entry("src", type: Walk::EntryType::Directory)).should be_true
+        c.matches?(entry("a.cr")).should be_false
+      end
+
+      it "applies size bounds to files only" do
+        c = Criteria.new(min_size: 100_i64)
+        c.matches?(entry("a.cr", size: 10_i64)).should be_false
+        c.matches?(entry("a.cr", size: 200_i64)).should be_true
+        # A directory's size is an implementation detail of the filesystem.
+        c.matches?(entry("src", type: Walk::EntryType::Directory, size: 10_i64)).should be_true
+      end
+
+      it "applies time bounds exclusively at the boundary" do
+        now = Time.utc
+        Criteria.new(newer_than: now).matches?(entry("a.cr", mtime: now)).should be_false
+        Criteria.new(newer_than: now).matches?(entry("a.cr", mtime: now + 1.second)).should be_true
+        Criteria.new(older_than: now).matches?(entry("a.cr", mtime: now - 1.second)).should be_true
+      end
+
+      it "enforces min_depth" do
+        c = Criteria.new(min_depth: 3)
+        c.matches?(entry("a.cr", depth: 2)).should be_false
+        c.matches?(entry("a.cr", depth: 3)).should be_true
+      end
+
+      it "folds case on both sides when asked" do
+        c = Criteria.new(name: ["A.TXT"], case_insensitive: true)
+        c.matches?(entry("a.txt")).should be_true
+        Criteria.new(name: ["A.TXT"]).matches?(entry("a.txt")).should be_false
+      end
+    end
   end
 end

@@ -1,3 +1,4 @@
+require "./fsutils/walker"
 require "./fsutils/find"
 require "./fsutils/grep"
 
