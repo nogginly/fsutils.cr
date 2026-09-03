@@ -48,6 +48,10 @@ jobs:
         if: ${{ runner.os == 'Linux' }}
         run: crystal tool format; git diff --exit-code src
 
+      - name: Build ameba  (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: mkdir -p bin; cp lib/ameba/bin/ameba.cr bin && crystal build -Dpreview_mt -o bin/ameba bin/ameba.cr
+
       - name: Run static code analysis (Linux)
         if: ${{ runner.os == 'Linux' }}
         run: bin/ameba src/
