@@ -9,16 +9,16 @@
 
 ## Getting started
 
-Command                        |Description                                                                       
--------------------------------|----------------------------------------------------------------------------------
-`ops up`                       |Gets everything setup including `crystal` via `apt` or `brew` if applicable.      
-`ops build-debug` or `ops bd`  |Make a debug build of `benchmark` sample, in `bin/debug` folder.                  
-`ops build-release` or `ops br`|Make a release / production build of `benchmark` sample,  in `bin/release` folder.
-`ops test_specs`               |Run the test suite (`crystal spec`).                                              
-`ops lint`                     |Run `ameba` on the source code                                                    
-`ops test`                     |Run `ops test_specs` followed by `ops lint` - use this before committing.         
-`ops clean`                    |Remove debug and release build files                                              
-`ops wipe`                     |In addition to cleaning, remove all compiler caches                               
+Command                        |Description                                                                    
+-------------------------------|-------------------------------------------------------------------------------
+`ops up`                       |Gets everything setup including `crystal` via `apt` or `brew` if applicable.   
+`ops build-debug` or `ops bd`  |Make a debug build of sample apps into the `bin/debug` folder.                 
+`ops build-release` or `ops br`|Make a release / production build of sample apps into the `bin/release` folder.
+`ops test_specs`               |Run the test suite (`crystal spec`).                                           
+`ops lint`                     |Run `ameba` on the source code                                                 
+`ops test`                     |Run `ops test_specs` followed by `ops lint` - use this before committing.      
+`ops clean`                    |Remove debug and release build files                                           
+`ops wipe`                     |In addition to cleaning, remove all compiler caches                            
 
 ## Contributions
 

@@ -11,3 +11,9 @@ crystal: ">= 1.20.0"
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
+
+targets:
+  fsu-find:
+    main: samples/find.cr
+  fsu-grep:
+    main: samples/grep.cr
