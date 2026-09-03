@@ -1,4 +1,5 @@
 require "./fsutils/find"
+require "./fsutils/grep"
 
 module FsUtils
   # :nodoc:
