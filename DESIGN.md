@@ -220,6 +220,15 @@ end
 `matched`, `truncated_line?`. Enough to cite a result; not so much that the
 struct becomes a second file API.
 
+`relative_path` is resolved against whichever root the file falls under, longest
+root first, with a separator check — a bare prefix test would report
+`/srv/project-secrets/x` as being inside `/srv/project`. With no root matching,
+the absolute path is returned rather than a mangled one.
+
+`Report` composes `Walk::Report` and adds `files_scanned`, `files_skipped` and
+`files_capped`; `truncated?` accounts for the last of those as well as the
+walk's own verdict.
+
 ### Output modes
 
 `Mode::Lines` (default) yields one `Match` per matching line. `Mode::Paths`
@@ -242,8 +251,12 @@ the worst possible failure mode for a caller that cannot see the filesystem.
 
 ### Scanning one file
 
-`Walker` decides *which* files are offered; `Grep` decides how much of each one
-it can afford. Three caps converge on every file, and the smallest wins:
+`Walker` decides *which* files are offered and hands over a `limit`; `Grep`
+decides how much of that allowance it can afford to spend. This is where the
+policy contract earns its keep — `Find` ignores `limit`, `Grep` lives by it.
+
+The file's size comes from the entry the walker already stat-ed, so the scanner
+never pays for a second syscall to decide whether a file is too big to open.
 
 ```mermaid
 ---
@@ -251,30 +264,36 @@ config:
   layout: elk
 ---
 flowchart TD
-    A[File offered by Walker] --> B{{"include / exclude globs<br/>size <= max_file_bytes"}}
-    B -- rejected --> R[files_skipped += 1] --> Z[Return to Walker]
-    B -- accepted --> C{{"Binary?<br/>NUL byte in first 8 KiB"}}
-    C -- yes --> R
-    C -- no --> D[["limit = min(<br/>per_file, dir_budget, max_matches - matches)<br/>per_file = 1 in Paths mode"]]
-    D --> E{{"limit <= 0?"}}
-    E -- yes --> Z
-    E -- no --> F[Scan lines, yield Match]
+    A["Walker offers an entry, with limit"] --> B{{"A regular file?"}}
+    B -- no --> Z[Return 0 to Walker]
+    B -- yes --> C{{"include / exclude globs"}}
+    C -- rejected --> Z
+    C -- accepted --> D{{"entry.size <= max_file_bytes"}}
+    D -- no --> R[files_skipped += 1] --> Z
+    D -- yes --> E{{"Binary?<br/>NUL byte in first 8 KiB"}}
+    E -- yes --> R
+    E -- no --> F[["per_file = max_matches_per_file<br/>1 in Paths mode<br/>allowed = min(per_file, limit)"]]
+    F --> G[files_scanned += 1<br/>scan lines, yield Match]
 
-    F --> G{{Which cap ran out first?}}
-    G -- "global: max_matches" --> H[stop_reason = MaxMatches] --> Z
-    G -- "per-file" --> I[files_capped += 1] --> J
-    G -- "dir_budget" --> K[dirs_capped += 1] --> J
-    G -- "none: file exhausted" --> J[dir_budget -= found] --> Z
+    G --> H{{"found == per_file<br/>and per_file &lt;= limit?"}}
+    H -- yes --> I[files_capped += 1] --> Y
+    H -- no --> Y["Return found;<br/>Walker decrements its budgets"]
 
-    style H stroke:#c62828,stroke-width:2px
     style I stroke:#e67e22,stroke-width:2px
-    style K stroke:#e67e22,stroke-width:2px
+    style Y stroke:#1565c0,stroke-width:2px
 ```
 
-The three caps answer three different questions: *have I spent my whole budget?*
-(`max_matches`), *is this one file drowning me?* (`max_matches_per_file`), and
-*is this one directory drowning me?* (`max_matches_per_dir`). Each sets a
-different counter, so the `Report` says which of the three actually bit.
+Three caps converge on every file, and they answer three different questions:
+*have I spent my whole budget?* (`max_matches`), *is this one directory drowning
+me?* (`max_matches_per_dir`), and *is this one file drowning me?*
+(`max_matches_per_file`). The walker folds the first two into `limit` and owns
+their counters; only the third belongs to `Grep`.
+
+Hence the condition on `files_capped`. It fires only when the file's own cap was
+the binding constraint. If `limit` was tighter, the shortfall is already
+explained by `dirs_capped` or a `MaxMatches` stop, and claiming it here would
+report the same lost match twice — leaving an agent to conclude that two
+different things went wrong when only one did.
 
 ### Additional guard rails
 
@@ -285,10 +304,15 @@ Huge files                         |`max_file_bytes`, default 5 MB
 One 2 MB line of minified JS       |`max_line_length`, default 1000; `truncated_line?` flags it  
 One lockfile matching on every line|`max_matches_per_file`, default 20; counted in `files_capped`
 Pathological regex                 |Timeout checked between files and every 256 lines            
+Sheer file count                   |`max_entries_scanned`, default 20,000                        
 Unreadable files, races, bad UTF-8 |Rescued per file, counted in `files_skipped`, never fatal    
 
-Only a bad pattern or a missing root raises. Everything the filesystem throws at
-us is a statistic, not an exception.
+Only a bad pattern or an unknown type name raises, and both are caller error
+caught at construction. A missing root is *not*: like anything else the
+filesystem throws at us it lands in `errors`, matching `Find`. That costs a
+caller who typos a root an empty result they must read `errors` to explain,
+which is the right trade for one vocabulary across both helpers — and `Tools`
+checks existence itself anyway, so an agent still gets a clean `path_not_found`.
 
 ### Omitted deliberately
 
