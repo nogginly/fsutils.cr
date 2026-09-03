@@ -7,6 +7,15 @@ require "../src/fsutils"
 # Not a `find(1)` work-alike, and not trying to be: this walk is breadth-first
 # and bounded, which `find(1)` is not. Flags are spelled the ordinary way.
 
+# A bad number should be a message, not a stack trace.
+def to_int(flag : String, value : String) : Int32
+  value.to_i? || abort("fsu-find: #{flag} expects a whole number, got #{value.inspect}")
+end
+
+def to_float(flag : String, value : String) : Float64
+  value.to_f? || abort("fsu-find: #{flag} expects a number, got #{value.inspect}")
+end
+
 roots = [] of String
 name = [] of String
 path = [] of String
@@ -22,12 +31,12 @@ follow = false
 skip_dirs = FsUtils::Find::DEFAULT_SKIP_DIRS
 quiet = false
 
-parser = OptionParser.new do |o|
-  o.banner = "Usage: fsu-find [ROOT...] [options]"
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: fsu-find [ROOT...] [options]"
 
-  o.on("--name PATTERN", "Glob matched against the basename (repeatable)") { |v| name << v }
-  o.on("--path PATTERN", "Glob matched against the whole path; wants a leading **/") { |v| path << v }
-  o.on("--type TYPE", "One of f, d, l") do |v|
+  opts.on("--name PATTERN", "Glob matched against the basename (repeatable)") { |v| name << v }
+  opts.on("--path PATTERN", "Glob matched against the whole path; wants a leading **/") { |v| path << v }
+  opts.on("--type KIND", "Entry kind: one of f, d, l") do |v|
     type = case v
            when "f" then FsUtils::Find::EntryType::File
            when "d" then FsUtils::Find::EntryType::Directory
@@ -35,55 +44,57 @@ parser = OptionParser.new do |o|
            else          abort "fsu-find: unknown --type #{v.inspect}; use f, d or l"
            end
   end
-  o.on("--max-depth N", "Do not descend below N") { |v| max_depth = v.to_i }
-  o.on("--min-depth N", "Do not report above N") { |v| min_depth = v.to_i }
+  opts.on("--max-depth N", "Do not descend below N") { |v| max_depth = to_int("--max-depth", v) }
+  opts.on("--min-depth N", "Do not report above N") { |v| min_depth = to_int("--min-depth", v) }
+  opts.on("--exclude PATTERN", "Drop matches by glob (repeatable)") { |v| exclude << v }
+  opts.on("--hidden", "Include dotfiles and dot-directories") { include_hidden = true }
+  opts.on("--follow", "Follow symlinked directories") { follow = true }
+  opts.on("--max-matches N", "Stop after N matches (default 1000)") { |v| max_matches = to_int("--max-matches", v) }
+  opts.on("--per-dir N", "Matches any one directory may contribute (default 100)") { |v| per_dir = to_int("--per-dir", v) }
+  opts.on("--timeout SECONDS", "Give up after SECONDS (default 10)") { |v| timeout = to_float("--timeout", v) }
+  opts.on("--no-skip-dirs", "Walk node_modules, .git and friends too") { skip_dirs = [] of String }
+  opts.on("-q", "--quiet", "Suppress the trailing report") { quiet = true }
 
-  o.separator "\nNot from find(1):"
-  o.on("--exclude PATTERN", "Drop matches by glob (repeatable)") { |v| exclude << v }
-  o.on("--hidden", "Include dotfiles and dot-directories") { include_hidden = true }
-  o.on("--follow", "Follow symlinked directories") { follow = true }
-  o.on("--max-matches N", "Stop after N matches (default 1000)") { |v| max_matches = v.to_i }
-  o.on("--per-dir N", "Matches any one directory may contribute (default 100)") { |v| per_dir = v.to_i }
-  o.on("--timeout SECONDS", "Give up after SECONDS (default 10)") { |v| timeout = v.to_f }
-  o.on("--no-skip-dirs", "Walk node_modules, .git and friends too") { skip_dirs = [] of String }
-  o.on("-q", "--quiet", "Suppress the trailing report") { quiet = true }
-
-  o.on("-h", "--help", "Show this help") do
-    puts o
+  opts.on("-h", "--help", "Show this help") do
+    puts opts
     exit 0
   end
 
-  o.unknown_args { |args| roots = args }
-  o.invalid_option { |flag| abort "fsu-find: #{flag}\n#{o}" }
+  opts.unknown_args { |args| roots = args }
+  opts.invalid_option { |flag| abort "fsu-find: #{flag}\n#{opts}" }
 end
 
 parser.parse
 roots = ["."] if roots.empty?
 Colorize.enabled = STDOUT.tty?
 
-find = FsUtils::Find.new(
-  roots,
-  name: name,
-  path: path,
-  exclude: exclude,
-  type: type,
-  min_depth: min_depth,
-  max_depth: max_depth,
-  max_matches: max_matches,
-  max_matches_per_dir: per_dir,
-  timeout: timeout.seconds,
-  follow_symlinks: follow,
-  include_hidden: include_hidden,
-  skip_dirs: skip_dirs,
-)
+find = begin
+  FsUtils::Find.new(
+    roots,
+    name: name,
+    path: path,
+    exclude: exclude,
+    type: type,
+    min_depth: min_depth,
+    max_depth: max_depth,
+    max_matches: max_matches,
+    max_matches_per_dir: per_dir,
+    timeout: timeout.seconds,
+    follow_symlinks: follow,
+    include_hidden: include_hidden,
+    skip_dirs: skip_dirs,
+  )
+rescue ex : ArgumentError
+  abort "fsu-find: #{ex.message}"
+end
 
-report = find.run do |m|
-  colour = case m.type
+report = find.run do |match|
+  colour = case match.type
            when .directory? then :blue
            when .symlink?   then :magenta
            else                  :default
            end
-  puts m.path.colorize(colour)
+  puts match.path.colorize(colour)
 end
 
 exit 0 if quiet

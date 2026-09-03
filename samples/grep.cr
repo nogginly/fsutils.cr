@@ -7,6 +7,15 @@ require "../src/fsutils"
 # Familiar short flags keep their usual meaning; anything this shard invented
 # gets a long name only.
 
+# A bad number should be a message, not a stack trace.
+def to_int(flag : String, value : String) : Int32
+  value.to_i? || abort("fsu-grep: #{flag} expects a whole number, got #{value.inspect}")
+end
+
+def to_float(flag : String, value : String) : Float64
+  value.to_f? || abort("fsu-grep: #{flag} expects a number, got #{value.inspect}")
+end
+
 pattern : String? = nil
 roots = [] of String
 mode = FsUtils::Grep::Mode::Lines
@@ -24,42 +33,42 @@ include_hidden = false
 follow = false
 quiet = false
 
-parser = OptionParser.new do |o|
-  o.banner = "Usage: fsu-grep PATTERN [ROOT...] [options]"
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: fsu-grep PATTERN [ROOT...] [options]"
 
-  o.on("-i", "--ignore-case", "Case-insensitive matching") { ignore_case = true }
-  o.on("-F", "--fixed-strings", "Treat the pattern literally, not as a regex") { fixed_string = true }
-  o.on("-l", "--files-with-matches", "Print each matching file once, not every line") do
+  opts.on("-i", "--ignore-case", "Case-insensitive matching") { ignore_case = true }
+  opts.on("-F", "--fixed-strings", "Treat the pattern literally, not as a regex") { fixed_string = true }
+  opts.on("-l", "--files-with-matches", "Print each matching file once, not every line") do
     mode = FsUtils::Grep::Mode::Paths
   end
-  o.on("-t TYPE", "--type TYPE", "Restrict to a named file type, e.g. cr, py (repeatable)") { |v| types << v }
+  opts.on("-t TYPE", "--type TYPE", "File type by extension, e.g. cr, py (repeatable)") { |v| types << v }
 
-  o.separator "\nNot from grep(1):"
-  o.on("--include GLOB", "Only search files matching GLOB (repeatable)") { |v| includes << v }
-  o.on("--exclude GLOB", "Skip files matching GLOB (repeatable)") { |v| excludes << v }
-  o.on("--hidden", "Search dotfiles and dot-directories") { include_hidden = true }
-  o.on("--follow", "Follow symlinked directories") { follow = true }
-  o.on("--max-depth N", "Do not descend below N (default 25)") { |v| max_depth = v.to_i }
-  o.on("--max-matches N", "Stop after N matches (default 1000)") { |v| max_matches = v.to_i }
-  o.on("--per-file N", "Matches any one file may contribute (default 20)") { |v| per_file = v.to_i }
-  o.on("--per-dir N", "Matches any one directory may contribute (default 100)") { |v| per_dir = v.to_i }
-  o.on("--timeout SECONDS", "Give up after SECONDS (default 10)") { |v| timeout = v.to_f }
-  o.on("--types", "List the known type names and exit") do
+  opts.separator "\nNot from grep(1):"
+  opts.on("--include GLOB", "Only search files matching GLOB (repeatable)") { |v| includes << v }
+  opts.on("--exclude GLOB", "Skip files matching GLOB (repeatable)") { |v| excludes << v }
+  opts.on("--hidden", "Search dotfiles and dot-directories") { include_hidden = true }
+  opts.on("--follow", "Follow symlinked directories") { follow = true }
+  opts.on("--max-depth N", "Do not descend below N (default 25)") { |v| max_depth = to_int("--max-depth", v) }
+  opts.on("--max-matches N", "Stop after N matches (default 1000)") { |v| max_matches = to_int("--max-matches", v) }
+  opts.on("--per-file N", "Matches any one file may contribute (default 20)") { |v| per_file = to_int("--per-file", v) }
+  opts.on("--per-dir N", "Matches any one directory may contribute (default 100)") { |v| per_dir = to_int("--per-dir", v) }
+  opts.on("--timeout SECONDS", "Give up after SECONDS (default 10)") { |v| timeout = to_float("--timeout", v) }
+  opts.on("--types", "List the known type names and exit") do
     puts FsUtils::Grep::TYPES.keys.sort!.join(", ")
     exit 0
   end
-  o.on("-q", "--quiet", "Suppress the trailing report") { quiet = true }
+  opts.on("-q", "--quiet", "Suppress the trailing report") { quiet = true }
 
-  o.on("-h", "--help", "Show this help") do
-    puts o
+  opts.on("-h", "--help", "Show this help") do
+    puts opts
     exit 0
   end
 
-  o.unknown_args do |args|
+  opts.unknown_args do |args|
     pattern = args.shift?
     roots = args
   end
-  o.invalid_option { |flag| abort "fsu-grep: #{flag}\n#{o}" }
+  opts.invalid_option { |flag| abort "fsu-grep: #{flag}\n#{opts}" }
 end
 
 parser.parse
@@ -87,7 +96,7 @@ grep = begin
     include_hidden: include_hidden,
     timeout: timeout.seconds,
   )
-rescue ex : FsUtils::Error
+rescue ex : FsUtils::Error | ArgumentError
   abort "fsu-grep: #{ex.message}"
 end
 
@@ -104,18 +113,18 @@ def highlight(line : String, column : Int32, matched : String) : String
   end
 end
 
-report = grep.run do |m|
+report = grep.run do |match|
   if mode.paths?
-    puts m.relative_path.colorize(:cyan)
+    puts match.relative_path.colorize(:cyan)
   else
-    print m.relative_path.colorize(:cyan)
+    print match.relative_path.colorize(:cyan)
     print ":".colorize(:dark_gray)
-    print m.line_number.colorize(:yellow)
+    print match.line_number.colorize(:yellow)
     print ":".colorize(:dark_gray)
-    print m.column.colorize(:yellow)
+    print match.column.colorize(:yellow)
     print ": ".colorize(:dark_gray)
-    print highlight(m.line, m.column, m.matched)
-    puts m.truncated_line? ? " …".colorize(:dark_gray) : ""
+    print highlight(match.line, match.column, match.matched)
+    puts match.truncated_line? ? " …".colorize(:dark_gray) : ""
   end
 end
 

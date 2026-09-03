@@ -25,7 +25,7 @@ actions:
     command: crystal clear_cache && ops clean
     description: Clear build caches and prior builds
   lint:
-    command: bin/ameba src/
+    command: bin/ameba src/ samples/
     description: Run Crystal source linter (ameba)
   test_specs:
     command: crystal spec
