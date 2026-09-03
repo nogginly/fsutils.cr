@@ -346,20 +346,26 @@ A helper instance is single-use per `run` and not thread-safe. Spawn a new one.
 
 ## `FsUtils::Tools`
 
-The agent-facing layer: module-level singletons that call a helper, buffer the
-results, and serialise them. No state between calls, so plain module methods
-rather than classes — `Tools.grep(...)` reads better at the call site than
-`Tools::Grep.call(...)`.
+The agent-facing layer: methods that call a helper, buffer the results, and
+serialise them. An instance rather than module-level singletons, because the
+sandbox root is state that must be set once and honoured on every call — a
+global `configure` would make it ambient, and ambient is exactly what a
+security boundary must not be.
 
 ```crystal
-tools = FsUtils::Tools.new(root: "/srv/project")
-json  = tools.grep(pattern: "TODO", path: "src", max_matches: 100)
+tools = FsUtils::Tools.new("/srv/project")
+tools.grep(pattern: "TODO", paths: ["src"], max_matches: 100).to_json
 ```
 
 Arguments are flat and JSON-friendly — strings, ints, string arrays; no
 `Time::Span`, no enums — because they arrive from a model as JSON in the first
-place. Each method returns a `JSON::Serializable` struct with a `to_json`, so a
-caller wanting the object is not forced to re-parse the string.
+place. Enum-ish arguments (`type`, `mode`) are taken as strings and parsed here,
+so an unknown value becomes an error code rather than an exception.
+
+Each method returns a `Response(T)`, not a serialised string. A host writes
+`.to_json`; a Crystal caller can read `ok?` without re-parsing what was just
+serialised. Nil fields are **omitted** rather than emitted as `null`, so a clean
+result is a small one and a host can test for a key's presence.
 
 ### The sandbox
 
@@ -397,8 +403,8 @@ flowchart TD
 Three details that matter:
 
 - **The separator check is not optional.** A bare `starts_with?(root)` lets
-  `/srv/project-secrets` pass for root `/srv/project`. The same bug currently
-  lurks in `Grep#relative`, which is what drew attention to it.
+  `/srv/project-secrets` pass for root `/srv/project`. The same bug used to lurk
+  in `Grep#relative`, which is what drew attention to it.
 - **Resolve before comparing, and resolve the nearest *existing* ancestor** when
   the path itself does not exist, so a lookup of a missing file inside the
   sandbox is a clean "not found" rather than a resolution error.
@@ -410,6 +416,18 @@ Paths in the response are returned relative to the sandbox root. The agent never
 sees the absolute layout of the host, which is both a small security win and a
 meaningful token saving.
 
+**One limitation, stated rather than hidden.** Resolving a path and then reading
+it is not atomic. A symlink swapped between the two — by another process on the
+same machine, in the window between the check and the open — could redirect the
+read. Closing that properly means `openat` with `O_NOFOLLOW` against a held
+directory descriptor, which is a substantially larger and more
+platform-specific piece of work.
+
+The gap is acceptable for the intended case, an agent reading a workspace whose
+other occupants are trusted. It is *not* acceptable if a hostile local process
+shares the filesystem, and anyone deploying this into that situation should know
+they are relying on a check with a race in it.
+
 ### The envelope
 
 One shape for every tool, so an agent learns it once:
@@ -417,31 +435,49 @@ One shape for every tool, so an agent learns it once:
 ```json
 {
   "ok": true,
-  "results": [ ],
-  "summary": { "matches": 42, "scanned": 1180, "elapsed_ms": 91 },
+  "results": [
+    { "path": "src/find.cr", "line": 42, "column": 5, "text": "# TODO tidy this" }
+  ],
+  "summary": { "matches": 200, "scanned": 1180, "elapsed_ms": 91, "files_scanned": 96, "files_skipped": 3 },
   "truncated": true,
   "stop_reason": "max_matches",
-  "notice": "Stopped at 42 matches; there may be more. Narrow with `include` or a more specific pattern.",
+  "notice": "Stopped at 200 matches; there may be more. Narrow with `include_globs` or a more specific pattern, or raise `max_matches`. 4 files hit their per-file quota; use `mode: \"paths\"` to see which files match instead.",
   "errors": ["src/vendor: permission denied"],
-  "errors_omitted": 0
+  "errors_omitted": 2
 }
 ```
 
-Four things earn their place:
+A clean, complete result carries only `ok`, `results` and `summary`; everything
+below is absent unless it has something to say. Five things earn their place:
 
 - **`notice`** is prose aimed at the model. `stop_reason: "max_matches"` is a
   fact; "narrow your query" is an action, and models act on the latter far more
-  reliably than they reason from the former.
+  reliably than they reason from the former. It **accumulates**: a search can
+  exhaust its matches, cap files, cap directories and overflow the output budget
+  at once, and each adds a sentence carrying its own remedy. The per-file
+  sentence points at `mode: "paths"`, which is the cheap reconnaissance step an
+  agent would otherwise have to know to reach for unprompted.
 - **`ok: false` with an `error` object, never an exception.** A raised Crystal
   exception becomes a stack trace in someone's tool harness. A JSON error is
   something the model can read and recover from. Error codes are a closed set:
   `path_outside_sandbox`, `path_not_found`, `invalid_pattern`, `invalid_argument`.
-- **`errors` is capped** at ten with an `errors_omitted` count. Otherwise a walk
-  across a permissions-denied mount becomes the entire response.
+  A failure carries the error and nothing else — no empty `results` to be
+  mistaken for "found nothing".
+- **`errors` is capped** at ten (`Tools::MAX_ERRORS`), with `errors_omitted`
+  counting the rest. Ten is enough to show the *shape* of the trouble — one
+  unreadable directory, or a whole mount denied — while a walk across a
+  permissions-denied filesystem would otherwise make the failures the entire
+  response and push out the results the agent asked for.
 - **`max_output_bytes`**, a limit that exists only at this layer. Grep lines vary
   wildly; 200 matches may be 2 KB or 200 KB, and `max_matches` cannot tell the
-  difference. Results are truncated when the serialised size would exceed it, and
-  `truncated` is set with a `notice` that says so.
+  difference. Results are dropped from the tail when the serialised size would
+  exceed it, and `truncated` is set with a `notice` that says so. Note the
+  asymmetry this creates: `summary.matches` counts what was *found*, which may
+  exceed the length of `results`. That is deliberate — an agent should be able to
+  see that it is looking at a fraction, and how large a fraction.
+- **`truncated`** is the single flag worth branching on. It is true if the walk
+  stopped early, if any file or directory forfeited a remainder, or if results
+  were dropped to fit the budget — every reason the answer might be a sample.
 
 ### Tool schemas
 
@@ -455,9 +491,11 @@ explicitly.
 
 ## Roadmap
 
-Settled: `Walker` extraction, then `Find`/`Grep` rebased on it, then `Tools`.
+Done: the `Walker` extraction, `Find` and `Grep` rebased onto it, and `Tools`
+over both.
 
-Candidates after that, roughly in order of usefulness to an agent: bounded file
-read with line ranges; `ls` with metadata; `tree` with a depth cap; and only
-then anything that writes. Write tools inside a sandbox are a different
-conversation, and a longer one.
+Candidates next, roughly in order of usefulness to an agent: bounded file read
+with line ranges; `ls` with metadata; `tree` with a depth cap; and only then
+anything that writes. Write tools inside a sandbox are a different conversation,
+and a longer one — the TOCTOU gap above is tolerable for reads and considerably
+less so for writes.
