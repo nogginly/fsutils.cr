@@ -2,7 +2,7 @@ require "./fsutils/walker"
 require "./fsutils/find"
 require "./fsutils/grep"
 
-require "./fsutils/tools/sandbox"
+require "./fsutils/tools"
 
 module FsUtils
   # :nodoc:
