@@ -16,7 +16,8 @@ FsUtils::Tools   # singletons: sandboxed, buffered, JSON, never raise
       │
 FsUtils::Find    FsUtils::Grep    # helpers: streaming, typed, may raise
       └──────┬──────┘
-      FsUtils::Walker             # one bounded breadth-first traversal
+FsUtils::Walker(P)                # one bounded breadth-first traversal
+FsUtils::Walk                     # the types both layers speak: Entry, Report, Policy
 ```
 
 ## The thesis, stated once
@@ -38,6 +39,35 @@ useful.
 The traversal core. It knows about directories, budgets, cycles and clocks; it
 has no opinion about what makes a match. `Find` and `Grep` are policies layered
 over it.
+
+### Generic over its policy
+
+`Walker(P)` takes its policy as a type parameter rather than as an abstract base
+class. With a concrete `P`, Crystal monomorphises and inlines the policy calls
+exactly as it would a block — so the traversal-object pattern costs nothing over
+the `yield` it replaces. Typing the policy as a shared parent would put a vtable
+back in the inner loop for no benefit whatever.
+
+`Walk::Policy` is therefore a *module* documenting the contract, included by
+policies so the compiler checks them, but never used as a type. Policies may be
+structs; they live for exactly one `run`.
+
+```crystal
+def visit(entry : Entry, limit : Int32) : Int32   # returns matches emitted
+def enter_dir(dir : String, depth : Int32) : Bool # false to prune
+def leave_dir(dir : String, depth : Int32) : Nil
+```
+
+`limit` is the walker's budget arithmetic made explicit:
+`min(remaining directory quota, max_matches - matches so far)`, always positive.
+A policy may narrow it — `Grep` applies its own per-file cap — but never exceed
+it; a return above `limit` is clamped rather than trusted. A policy is free to
+spend the whole limit on one entry, which is precisely what `Grep` does when a
+single file yields twenty matches.
+
+Putting the arithmetic here rather than in each helper is the point of the
+exercise: the per-directory budget is the thing both helpers previously got
+subtly wrong, and it now exists in one place.
 
 ### Breadth-first, on purpose
 
@@ -67,7 +97,8 @@ Limit                |Default|Stops
 `timeout`            |10s    |Network mounts, spinning rust
 `max_depth`          |32     |Pathological nesting         
 
-Plus `skip_dirs`, one deny-list of the usual sinkholes shared by both helpers
+Plus `skip_dirs`, one deny-list (`Walk::DEFAULT_SKIP_DIRS`) of the usual
+sinkholes shared by both helpers
 (`.git`, `.hg`, `.svn`, `node_modules`, `lib`, `vendor`, `.venv`, `target`,
 `build`, `dist`, `__pycache__`, `.cache`, `.terraform`, `.next`). Pass
 `skip_dirs: [] of String` to disable.
@@ -130,9 +161,16 @@ flowchart TD
 
 ### `Report`
 
-`matches`, `scanned`, `directories`, `pruned`, `errors`, `elapsed`,
-`stop_reason`, and `truncated?`. Both helpers return this shape; `Grep` adds its
-own counters (`files_skipped`, `files_capped`, `dirs_capped`).
+`Walk::Report` carries `matches`, `scanned`, `directories`, `pruned`,
+`dirs_capped`, `errors`, `elapsed` and `stop_reason`. `truncated?` is true when
+the stop reason is anything but `Completed` **or** when `dirs_capped > 0`: a
+capped directory means the caller saw a sample, whatever the stop reason says.
+
+`dirs_capped` belongs here rather than to `Grep` because `Walker` owns the
+per-directory budget, and a counter should live with the thing that decrements
+it. Each helper composes this record into its own report — `Grep` adds
+`files_skipped` and `files_capped` — rather than inheriting from it, so neither
+carries fields that mean nothing to it.
 
 ---
 
@@ -269,12 +307,12 @@ one tool should not be ambushed by the next.
 
 Concept           |Decision                                                                
 ------------------|------------------------------------------------------------------------
-Result object     |`Report`, with `truncated?`                                             
+Result object     |`Walk::Report`, composed into each helper's own; `truncated?`           
 Why we stopped    |`StopReason` — `Completed`, `MaxMatches`, `MaxEntriesScanned`, `Timeout`
 Roots             |`Array(String)`, with a single-`String` convenience overload            
 Hidden entries    |`include_hidden: false` — agents rarely want dotfile churn              
 Time limit        |`timeout : Time::Span`                                                  
-Skip list         |one `Walker::DEFAULT_SKIP_DIRS`                                         
+Skip list         |one `Walk::DEFAULT_SKIP_DIRS`                                           
 Failure           |`FsUtils::Error`; `ArgumentError` reserved for genuine programmer error 
 Filesystem trouble|collected into `errors`, never raised                                   
 
