@@ -46,6 +46,42 @@ at most its quota and is then skipped for matching purposes (its children are
 still queued). Think of it as a buffet with a serving spoon rather than a queue
 of people with buckets.
 
+### The loop, end to end
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TD
+    A[Start: roots pushed onto BFS queue] --> B{{Queue empty?}}
+    B -- yes --> Z[Report: Completed]
+    B -- no --> C[Pop next dir + depth]
+    C --> D{{realpath already seen?}}
+    D -- yes --> E[pruned += 1] --> B
+    D -- no --> F[Record realpath, readdir, sort children]
+    F --> G{{Next child?}}
+    G -- no --> B
+    G -- yes --> H{{Budget left? scanned / seconds}}
+    H -- no --> Y[Report: MaxEntriesScanned or Timeout]
+    H -- yes --> I[lstat + stat child]
+    I --> J{{Filters pass? name, path, type, size, mtime, depth}}
+    J -- no --> L
+    J -- yes --> K{{Dir quota left? max_matches_per_dir}}
+    K -- no --> L
+    K -- yes --> M[Yield Match to block]
+    M --> N{{matches >= max_matches?}}
+    N -- yes --> X[Report: MaxMatches]
+    N -- no --> L{{Descend? dir, not skipped, depth ok, symlink policy}}
+    L -- yes --> O[Enqueue child] --> G
+    L -- no --> G
+
+    style Z stroke:#2e7d32,stroke-width:2px
+    style X stroke:#c62828,stroke-width:2px
+    style Y stroke:#c62828,stroke-width:2px
+    style M stroke:#1565c0,stroke-width:2px
+```
+
 ## Guard rails
 
 Five independent brakes, each with a sane default:
@@ -79,7 +115,8 @@ for free. `realpath` costs a syscall per directory, which is noise next to the
 
 ## Matching
 
-- `name:` globs match the basename; `path:` globs match the full path;
+- `name:` globs match the basename; `path:` globs match the **whole** path, so
+  they nearly always want a leading `**/` — a single `*` does not cross a `/`;
   `exclude:` globs match either. All are OR-ed within a list, AND-ed across
   lists. Empty list means "no opinion".
 - `case_insensitive:` downcases both sides. Crude, correct for ASCII, good
