@@ -94,6 +94,31 @@ module FsUtils
       }
       JSON
 
+    WRITE_SCHEMA = <<-JSON
+      {
+        "name": "write_text_file",
+        "description": "Create a text file, or replace one in full. Writes exactly what you supply — no trailing newline is added and nothing is normalised. Replacing an existing file requires overwrite: true, and the call is refused otherwise so a file you did not know was there cannot be destroyed. Missing parent directories are created and reported back; an unexpected entry in parents_created usually means a mistyped path. For a partial change use text_replace instead. All paths are relative to the workspace root.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File to write, relative to the workspace root."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full contents of the file. May be empty, which writes an empty file."
+            },
+            "overwrite": {
+              "type": "boolean",
+              "description": "Permits replacing an existing file. Default false. Ignored when the path does not exist. Check `created` in the result: false means you replaced something."
+            }
+          },
+          "required": ["path", "content"]
+        }
+      }
+      JSON
+
     GREP_SCHEMA = <<-JSON
       {
         "name": "search_file_contents",

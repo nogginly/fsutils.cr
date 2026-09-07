@@ -16,6 +16,12 @@ module FsUtils
       RANGE_TOO_LARGE   = "range_too_large"
       PERMISSION_DENIED = "permission_denied"
       TOO_LARGE         = "too_large"
+
+      # Writing
+      FILE_EXISTS          = "file_exists"
+      PARENT_NOT_DIRECTORY = "parent_not_directory"
+      CONTENT_TOO_LARGE    = "content_too_large"
+      WRITE_FAILED         = "write_failed"
     end
 
     # `message` says what happened; `suggestion` says what to do instead.

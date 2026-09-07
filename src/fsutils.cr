@@ -3,6 +3,7 @@ require "./fsutils/walker"
 require "./fsutils/find"
 require "./fsutils/grep"
 require "./fsutils/reader"
+require "./fsutils/writer"
 
 require "./fsutils/tools"
 

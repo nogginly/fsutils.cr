@@ -3,6 +3,7 @@ require "json"
 require "./tools/envelope"
 require "./tools/sandbox"
 require "./tools/read"
+require "./tools/write"
 require "./tools/schemas"
 
 module FsUtils
