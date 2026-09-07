@@ -297,6 +297,12 @@ different things went wrong when only one did.
 
 ### Additional guard rails
 
+Binary sniffing and long-line clamping live in `FsUtils::Text`, not in `Grep`:
+the file-reading tools ask exactly the same two questions, and answering them in
+two places is how the answers drift apart. `Text.clamp` returns the number of
+characters dropped rather than a boolean, because `Grep` only needs to know
+*that* a line was cut while a reader needs to say how much it lost.
+
 Risk                               |Mitigation                                                   
 -----------------------------------|-------------------------------------------------------------
 Binary files: noise in, garbage out|Sniff first 8 KiB for a NUL byte; skip                       
@@ -430,7 +436,32 @@ they are relying on a check with a race in it.
 
 ### The envelope
 
-One shape for every tool, so an agent learns it once:
+Four fields are common to every tool, whatever it does — `ok`, `truncated`,
+`notice` and `error` — and live in a `Tools::Envelope` module that each response
+struct includes. Ivars from an included module serialise first, so `ok` leads
+every response, which is the field a model branches on before reading anything
+else.
+
+Everything else belongs to the tool. `SearchResponse(T)` adds `results`,
+`summary`, `stop_reason`, `errors` and `errors_omitted`; the coming file tools
+will add fields of their own shape. One response type stretched across
+searching, reading and writing would give most tools a majority of fields that
+mean nothing to them, and a model no way to tell which.
+
+Note what is **not** in the module. `path` is absent, though three of the four
+planned responses have one, because a search has many paths inside its results
+and no single one — a field missing from one member of a set is not common to
+the set. `errors` and `errors_omitted` are absent because they exist for a
+*walk*: a traversal accumulates filesystem trouble and carries on, where a read
+either succeeds or fails.
+
+`truncated` stays in the module even though its reasons differ completely — a
+sampled walk in one tool, a prefix of a file in another. The reasons belong in
+each response's own field (`stop_reason`, and a `truncation_reason` to come);
+what is common, and what an agent needs to branch on, is the bare fact that it
+is not looking at everything.
+
+The searching tools' shape:
 
 ```json
 {
@@ -459,10 +490,23 @@ below is absent unless it has something to say. Five things earn their place:
   agent would otherwise have to know to reach for unprompted.
 - **`ok: false` with an `error` object, never an exception.** A raised Crystal
   exception becomes a stack trace in someone's tool harness. A JSON error is
-  something the model can read and recover from. Error codes are a closed set:
+  something the model can read and recover from. Error codes are a closed set —
+  closed meaning enumerated in `Tools::ErrorCode`, not meaning short. Today:
   `path_outside_sandbox`, `path_not_found`, `invalid_pattern`, `invalid_argument`.
   A failure carries the error and nothing else — no empty `results` to be
   mistaken for "found nothing".
+- **`error.suggestion`**, separate from `error.message`. The message says what
+  happened; the suggestion says what to do instead, and a model follows an
+  instruction far more reliably than it derives one from a description. So
+  `path_not_found` names a concrete `find_files` call to locate the file, and
+  `invalid_pattern` points at `fixed_string: true` rather than leaving the
+  caller to guess which metacharacter offended.
+
+  It is carried on `FsUtils::Error` itself, so the code that *detects* the
+  problem writes the advice — that code knows what the valid values were, where
+  the tool layer would have to reverse-engineer it from a message string. The
+  field is omitted when there is honestly nothing useful to say: an invented
+  suggestion is worse than none, because it will be followed.
 - **`errors` is capped** at ten (`Tools::MAX_ERRORS`), with `errors_omitted`
   counting the rest. Ten is enough to show the *shape* of the trouble — one
   unreadable directory, or a whole mount denied — while a walk across a
@@ -494,8 +538,24 @@ explicitly.
 Done: the `Walker` extraction, `Find` and `Grep` rebased onto it, and `Tools`
 over both.
 
-Candidates next, roughly in order of usefulness to an agent: bounded file read
-with line ranges; `ls` with metadata; `tree` with a depth cap; and only then
-anything that writes. Write tools inside a sandbox are a different conversation,
-and a longer one — the TOCTOU gap above is tolerable for reads and considerably
-less so for writes.
+Next, in order: `read_text_file`, then `write_text_file`, then `text_replace`.
+Each is scoped in its own document. The envelope split and `FsUtils::Text` above
+were extracted in preparation for them.
+
+These will ship **stateless first**. The scope documents assume a session-scoped
+read log, which is what makes `write_text_file` refuse to overwrite a file the
+caller has not seen, and what lets `text_replace` strip numbered prefixes safely.
+Without it, `overwrite: false` still refuses to clobber an existing file, but
+`file_exists_unread` cannot fire, and a prefix-laden `old_string` can only be
+*diagnosed* in an error rather than silently corrected. Both are real reductions
+in safety and are recorded here so nobody assumes otherwise from the scope
+documents.
+
+The log, when it comes, should be an interface a host supplies rather than
+machinery this shard owns — and nilable, so the guards read "if a session is
+present, check". State that outlives a call is the host's to manage.
+
+After that: `ls` with metadata, and `tree` with a depth cap. Note that the TOCTOU
+gap above is tolerable for reads and considerably less so for writes: temp-file
+and rename protects against a partial write, not against writing through a
+symlink swapped in after resolution.
