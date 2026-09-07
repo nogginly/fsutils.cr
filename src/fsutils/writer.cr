@@ -32,7 +32,7 @@ module FsUtils
       raise ArgumentError.new("path must not contain null bytes") if @path.includes?('\0')
 
       if @content.bytesize > @max_content_bytes
-        raise FsUtils::Error.new(
+        raise FsUtils::ContentTooLargeError.new(
           "content is #{@content.bytesize} bytes, over the #{@max_content_bytes} byte ceiling",
           "Write less in one call, or split the content across files.")
       end
@@ -60,7 +60,7 @@ module FsUtils
       return unless ::File.exists?(@path)
 
       if ::File.directory?(@path)
-        raise FsUtils::Error.new(
+        raise FsUtils::IsDirectoryError.new(
           "#{@path} is a directory, not a file",
           "Name a file inside it, or choose a different path.")
       end
@@ -84,7 +84,7 @@ module FsUtils
       end
 
       unless ::File.directory?(current)
-        raise FsUtils::Error.new(
+        raise FsUtils::ParentNotDirectoryError.new(
           "#{current} exists but is not a directory",
           "A path segment is a file. Choose a different path.")
       end
@@ -130,9 +130,9 @@ module FsUtils
     private def translate(ex : Exception) : Exception
       case ex
       when ::File::AccessDeniedError
-        FsUtils::Error.new("#{@path} is not writable")
+        FsUtils::PermissionDeniedError.new("#{@path} is not writable")
       when IO::Error
-        FsUtils::Error.new(
+        FsUtils::WriteFailedError.new(
           "write to #{@path} failed: #{ex.message}",
           "The file was not modified. Check available space and permissions.")
       else

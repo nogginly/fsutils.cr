@@ -1,3 +1,4 @@
+require "./fsutils/error"
 require "./fsutils/text"
 require "./fsutils/walker"
 require "./fsutils/find"

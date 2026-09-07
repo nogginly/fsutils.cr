@@ -491,10 +491,23 @@ below is absent unless it has something to say. Five things earn their place:
 - **`ok: false` with an `error` object, never an exception.** A raised Crystal
   exception becomes a stack trace in someone's tool harness. A JSON error is
   something the model can read and recover from. Error codes are a closed set —
-  closed meaning enumerated in `Tools::ErrorCode`, not meaning short. Today:
-  `path_outside_sandbox`, `path_not_found`, `invalid_pattern`, `invalid_argument`.
-  A failure carries the error and nothing else — no empty `results` to be
+  closed meaning enumerated in `FsUtils::ErrorCode`, not meaning short. A
+  failure carries the error and nothing else — no empty `results` to be
   mistaken for "found nothing".
+
+  The codes live in `FsUtils`, not `Tools`, because the helper that *detects* a
+  failure is what knows its kind, and a helper naming a constant from the layer
+  above it would invert the dependency. Each kind is a subclass of
+  `FsUtils::Error` answering its own `code`; a bare `Error` answers nothing,
+  which the tool layer reads as `invalid_argument`. The layer's whole
+  translation is then `ex.code`.
+
+  It was not always. The first version of the tool layer worked out what had
+  gone wrong by searching the exception message for words like "binary" or
+  "pattern" — which functioned exactly until someone rephrased a message, and
+  which had been copied into three separate classifiers by the time the writer
+  landed. Sniffing text for meaning that was known at the raise site is the
+  same mistake as parsing `content` to find out which lines you were given.
 - **`error.suggestion`**, separate from `error.message`. The message says what
   happened; the suggestion says what to do instead, and a model follows an
   instruction far more reliably than it derives one from a description. So
@@ -535,21 +548,26 @@ explicitly.
 
 ## Roadmap
 
-Done: the `Walker` extraction, `Find` and `Grep` rebased onto it, and `Tools`
-over both.
+Done: the `Walker` extraction, `Find` and `Grep` rebased onto it, `Tools` over
+both, and `read_text_file` and `write_text_file` over `Reader` and `Writer`.
 
-Next, in order: `read_text_file`, then `write_text_file`, then `text_replace`.
-Each is scoped in its own document. The envelope split and `FsUtils::Text` above
-were extracted in preparation for them.
+Next: `text_replace`, scoped in its own document.
 
-These will ship **stateless first**. The scope documents assume a session-scoped
+The text tools ship **stateless first**. The scope documents assume a session-scoped
 read log, which is what makes `write_text_file` refuse to overwrite a file the
 caller has not seen, and what lets `text_replace` strip numbered prefixes safely.
 Without it, `overwrite: false` still refuses to clobber an existing file, but
 `file_exists_unread` cannot fire, and a prefix-laden `old_string` can only be
 *diagnosed* in an error rather than silently corrected. Both are real reductions
 in safety and are recorded here so nobody assumes otherwise from the scope
-documents.
+documents. As shipped, `Tools#write` catches "you did not know this file was
+here"; it cannot catch "you knew, but you have not looked".
+
+A related debt: the limits are the helpers' to configure but the tool layer
+hardcodes what it passes down, so a host cannot raise the read budget or lower
+the write ceiling. The helpers already take every limit as a constructor
+argument, so closing this means threading one configuration object through
+`Tools.new` rather than changing five files.
 
 The log, when it comes, should be an interface a host supplies rather than
 machinery this shard owns — and nilable, so the guards read "if a session is

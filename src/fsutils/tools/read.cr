@@ -77,7 +77,7 @@ module FsUtils
       end
 
       success(resolved, result, offset)
-    rescue ex : Sandbox::Escape | FsUtils::Error | ArgumentError
+    rescue ex : FsUtils::Error | ArgumentError
       read_failure(ex)
     end
 
@@ -102,21 +102,11 @@ module FsUtils
     # is the specific-first order they are written in.
     private def read_failure(ex : Exception) : ReadResponse
       case ex
-      when Sandbox::Escape
-        ReadResponse.failure(
-          ErrorCode::OUTSIDE_SANDBOX, message_of(ex, "path outside sandbox"),
-          outside_sandbox_suggestion)
       when FsUtils::Error
-        code, suggestion = classify_read(ex)
-        ReadResponse.failure(code, message_of(ex, "cannot read file"), suggestion)
+        ReadResponse.failure(code_of(ex), message_of(ex, "cannot read file"), ex.suggestion)
       else
         ReadResponse.failure(ErrorCode::INVALID_ARGUMENT, message_of(ex, "invalid argument"))
       end
-    end
-
-    private def message_of(ex : Exception, fallback : String) : String
-      message = ex.message
-      message.nil? ? fallback : message
     end
 
     private def success(resolved : String, result, offset : Int32?) : ReadResponse
@@ -147,19 +137,6 @@ module FsUtils
     # Zero means "nothing to report", which is an absent field rather than a 0.
     private def positive(count : Int32) : Int32?
       count > 0 ? count : nil
-    end
-
-    private def classify_read(ex : FsUtils::Error) : {String, String?}
-      message = ex.message.to_s
-      code = case
-             when message.includes?("binary")       then ErrorCode::BINARY_CONTENT
-             when message.includes?("UTF-8")        then ErrorCode::NOT_UTF8
-             when message.includes?("directory")    then ErrorCode::IS_DIRECTORY
-             when message.includes?("ceiling")      then ErrorCode::TOO_LARGE
-             when message.includes?("not readable") then ErrorCode::PERMISSION_DENIED
-             else                                        ErrorCode::INVALID_ARGUMENT
-             end
-      {code, ex.suggestion}
     end
 
     private def range_suggestion(result) : String

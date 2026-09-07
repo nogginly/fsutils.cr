@@ -166,14 +166,10 @@ module FsUtils
         errors: capped_errors(report.errors),
         errors_omitted: omitted_errors(report.errors),
       )
-    rescue ex : Sandbox::Escape
-      SearchResponse(FindResult).failure(
-        ErrorCode::OUTSIDE_SANDBOX, ex.message || "path outside sandbox", outside_sandbox_suggestion)
     rescue ex : FsUtils::Error
-      SearchResponse(FindResult).failure(
-        ErrorCode::INVALID_ARGUMENT, ex.message || "invalid argument", ex.suggestion)
+      SearchResponse(FindResult).failure(code_of(ex), message_of(ex, "search failed"), ex.suggestion)
     rescue ex : ArgumentError
-      SearchResponse(FindResult).failure(ErrorCode::INVALID_ARGUMENT, ex.message || "invalid argument")
+      SearchResponse(FindResult).failure(ErrorCode::INVALID_ARGUMENT, message_of(ex, "invalid argument"))
     end
 
     # ------------------------------------------------------------------ #
@@ -244,14 +240,10 @@ module FsUtils
         errors: capped_errors(report.errors),
         errors_omitted: omitted_errors(report.errors),
       )
-    rescue ex : Sandbox::Escape
-      SearchResponse(GrepResult).failure(
-        ErrorCode::OUTSIDE_SANDBOX, ex.message || "path outside sandbox", outside_sandbox_suggestion)
     rescue ex : FsUtils::Error
-      code, suggestion = classify(ex)
-      SearchResponse(GrepResult).failure(code, ex.message || "invalid argument", suggestion)
+      SearchResponse(GrepResult).failure(code_of(ex), message_of(ex, "search failed"), ex.suggestion)
     rescue ex : ArgumentError
-      SearchResponse(GrepResult).failure(ErrorCode::INVALID_ARGUMENT, ex.message || "invalid argument")
+      SearchResponse(GrepResult).failure(ErrorCode::INVALID_ARGUMENT, message_of(ex, "invalid argument"))
     end
 
     # ------------------------------------------------------------------ #
@@ -269,16 +261,16 @@ module FsUtils
        not_found_suggestion(path)}
     end
 
-    # A bad regex and a bad argument arrive as the same exception type, and
-    # only the message tells them apart.
-    private def classify(ex : FsUtils::Error) : {String, String?}
-      if ex.message.to_s.includes?("pattern")
-        {ErrorCode::INVALID_PATTERN,
-         "Escape the regex metacharacters, or set `fixed_string: true` \
-to match the text literally."}
-      else
-        {ErrorCode::INVALID_ARGUMENT, ex.suggestion}
-      end
+    # An error's kind is the error's own business. A bare `FsUtils::Error`
+    # reports no code, which the layer reads as "an argument was wrong".
+    private def code_of(ex : FsUtils::Error) : String
+      code = ex.code
+      code.nil? ? ErrorCode::INVALID_ARGUMENT : code
+    end
+
+    private def message_of(ex : Exception, fallback : String) : String
+      message = ex.message
+      message.nil? ? fallback : message
     end
 
     # Suggestions are written once and shared, so `find` and `grep` do not

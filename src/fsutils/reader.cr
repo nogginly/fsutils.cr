@@ -78,7 +78,7 @@ module FsUtils
 
       ::File.open(@path, "r") do |file|
         if Text.binary?(file)
-          raise FsUtils::Error.new(
+          raise FsUtils::BinaryContentError.new(
             "#{@path} appears to be a binary file",
             "Binary content cannot be returned as text. Use a tool suited to \
 its type, or search it with grep.")
@@ -92,20 +92,20 @@ its type, or search it with grep.")
     private def stat : ::File::Info
       ::File.info(@path)
     rescue ::File::NotFoundError
-      raise FsUtils::Error.new("#{@path} does not exist")
+      raise FsUtils::NotFoundError.new("#{@path} does not exist")
     rescue ::File::AccessDeniedError
-      raise FsUtils::Error.new("#{@path} is not readable")
+      raise FsUtils::PermissionDeniedError.new("#{@path} is not readable")
     end
 
     private def check_readable(info : ::File::Info) : Nil
       if info.directory?
-        raise FsUtils::Error.new(
+        raise FsUtils::IsDirectoryError.new(
           "#{@path} is a directory, not a file",
           "List its contents instead, or name a file inside it.")
       end
 
       if info.size > @max_file_bytes
-        raise FsUtils::Error.new(
+        raise FsUtils::TooLargeError.new(
           "#{@path} is #{info.size} bytes, over the #{@max_file_bytes} byte ceiling",
           "Search it with grep rather than reading it whole.")
       end
@@ -135,7 +135,7 @@ its type, or search it with grep.")
         next if total > last_wanted || budget_hit
 
         unless line.valid_encoding?
-          raise FsUtils::Error.new(
+          raise FsUtils::NotUtf8Error.new(
             "#{@path} is not valid UTF-8 (line #{total})",
             "Only UTF-8 text can be returned. Convert the file, or treat it \
 as binary.")

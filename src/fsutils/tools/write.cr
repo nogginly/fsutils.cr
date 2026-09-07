@@ -68,7 +68,7 @@ module FsUtils
         parents_created: result.parents_created.map { |dir| @sandbox.relative(dir) },
         notice: write_notice(result, previous),
       )
-    rescue ex : Sandbox::Escape | FsUtils::Error | ArgumentError
+    rescue ex : FsUtils::Error | ArgumentError
       write_failure(ex)
     end
 
@@ -82,29 +82,11 @@ module FsUtils
 
     private def write_failure(ex : Exception) : WriteResponse
       case ex
-      when Sandbox::Escape
-        WriteResponse.failure(
-          ErrorCode::OUTSIDE_SANDBOX, message_of(ex, "path outside sandbox"),
-          outside_sandbox_suggestion)
       when FsUtils::Error
-        code, suggestion = classify_write(ex)
-        WriteResponse.failure(code, message_of(ex, "cannot write file"), suggestion)
+        WriteResponse.failure(code_of(ex), message_of(ex, "cannot write file"), ex.suggestion)
       else
         WriteResponse.failure(ErrorCode::INVALID_ARGUMENT, message_of(ex, "invalid argument"))
       end
-    end
-
-    private def classify_write(ex : FsUtils::Error) : {String, String?}
-      message = ex.message.to_s
-      code = case
-             when message.includes?("is a directory")  then ErrorCode::IS_DIRECTORY
-             when message.includes?("not a directory") then ErrorCode::PARENT_NOT_DIRECTORY
-             when message.includes?("ceiling")         then ErrorCode::CONTENT_TOO_LARGE
-             when message.includes?("not writable")    then ErrorCode::PERMISSION_DENIED
-             when message.includes?("failed")          then ErrorCode::WRITE_FAILED
-             else                                           ErrorCode::INVALID_ARGUMENT
-             end
-      {code, ex.suggestion}
     end
 
     private def write_notice(result, previous : Int32?) : String?
