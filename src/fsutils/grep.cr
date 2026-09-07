@@ -225,17 +225,13 @@ module FsUtils
       end
 
       private def clamp(line : String) : {String, Bool}
-        return {line, false} if line.size <= @max_line_length
-        {line[0, @max_line_length], true}
+        text, omitted = Text.clamp(line, @max_line_length)
+        {text, omitted > 0}
       end
 
       # Matches are noise in a binary and garbage on the way out.
       private def binary?(file : ::File) : Bool
-        buffer = Bytes.new(8192)
-        read = file.read(buffer)
-        file.rewind
-        return false if read == 0
-        buffer[0, read].includes?(0_u8)
+        Text.binary?(file)
       end
 
       # Relative to whichever root the path falls under. The separator check is

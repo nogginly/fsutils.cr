@@ -2,7 +2,17 @@ module FsUtils
   # Raised for caller error that a helper cannot recover from: a bad pattern,
   # a missing root. Filesystem trouble encountered *during* a walk is collected
   # into `Report#errors` instead.
-  class Error < Exception; end
+  #
+  # `suggestion` is optional prose naming the way out. It is carried here so
+  # that whoever detects the problem — which knows what the valid values were —
+  # writes the advice, rather than the tool layer guessing from a message.
+  class Error < Exception
+    getter suggestion : String?
+
+    def initialize(message : String, @suggestion : String? = nil)
+      super(message)
+    end
+  end
 
   # Types shared by `Walker` and its policies.
   #
