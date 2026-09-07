@@ -8,6 +8,14 @@ module FsUtils
       NOT_FOUND        = "path_not_found"
       INVALID_PATTERN  = "invalid_pattern"
       INVALID_ARGUMENT = "invalid_argument"
+
+      # Reading
+      IS_DIRECTORY      = "is_directory"
+      BINARY_CONTENT    = "binary_content"
+      NOT_UTF8          = "not_utf8"
+      RANGE_TOO_LARGE   = "range_too_large"
+      PERMISSION_DENIED = "permission_denied"
+      TOO_LARGE         = "too_large"
     end
 
     # `message` says what happened; `suggestion` says what to do instead.

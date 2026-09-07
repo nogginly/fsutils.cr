@@ -65,6 +65,35 @@ module FsUtils
       }
       JSON
 
+    READ_SCHEMA = <<-JSON
+      {
+        "name": "read_text_file",
+        "description": "Read a text file, whole or by line range. Output is line-numbered by default so you can cite regions back to search_file_contents or a follow-up read without recounting. Check `truncated`: a long file returns its first page plus a notice telling you how to continue. `total_lines` is always the file's real length, so you can tell how much you have not seen. All paths are relative to the workspace root.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File to read, relative to the workspace root."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "First line to return, 1-based, matching the numbering in the output. Omit to start at the beginning."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum lines to return. Omit for the default of 2000. Note: when you give an explicit offset or limit and the range is too large to return, the call fails rather than silently returning less."
+            },
+            "line_numbers": {
+              "type": "boolean",
+              "description": "Prefix each line with its number. Default true. Set false only when you need the file's exact bytes."
+            }
+          },
+          "required": ["path"]
+        }
+      }
+      JSON
+
     GREP_SCHEMA = <<-JSON
       {
         "name": "search_file_contents",
