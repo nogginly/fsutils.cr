@@ -94,11 +94,15 @@ Every response has the same shape, so a model learns it once:
 }
 ```
 
-Three things to know:
+Four things to know:
 
 - **Paths are relative to the sandbox root**, going in and coming back. Anything
   resolving outside it — via `..`, an absolute path, or a symlink — is refused
   with `path_outside_sandbox` rather than followed.
+- **A failure carries advice, not just a code.** `{"ok": false, "error": {...}}`
+  has a `message` saying what happened and, where there is something useful to
+  say, a `suggestion` saying what to do instead — a `find_files` call to locate
+  a mistyped path, or `fixed_string: true` for a regex that would not compile.
 - **`notice` is written for the model, not the log.** `stop_reason` states a
   fact; `notice` says what to do about it. Fields that have nothing to say are
   omitted rather than set to `null`.

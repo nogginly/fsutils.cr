@@ -1,5 +1,6 @@
 require "json"
 
+require "./tools/envelope"
 require "./tools/sandbox"
 require "./tools/schemas"
 
@@ -19,14 +20,6 @@ module FsUtils
   # A raised exception becomes a stack trace in someone's tool harness. A JSON
   # error is something a model can read and recover from.
   class Tools
-    # Codes are a closed set, so a model can branch on them.
-    module ErrorCode
-      OUTSIDE_SANDBOX  = "path_outside_sandbox"
-      NOT_FOUND        = "path_not_found"
-      INVALID_PATTERN  = "invalid_pattern"
-      INVALID_ARGUMENT = "invalid_argument"
-    end
-
     # Serialised results beyond this are dropped. `max_matches` cannot do this
     # job: 200 grep matches may be 2 KB or 200 KB, and only the bytes know.
     DEFAULT_MAX_OUTPUT_BYTES = 32_000
@@ -34,15 +27,6 @@ module FsUtils
     # Enough for a model to see the shape of the trouble; not so many that a
     # permissions-denied mount becomes the entire response.
     MAX_ERRORS = 10
-
-    struct ErrorInfo
-      include JSON::Serializable
-      getter code : String
-      getter message : String
-
-      def initialize(@code : String, @message : String)
-      end
-    end
 
     struct Summary
       include JSON::Serializable
@@ -79,19 +63,22 @@ module FsUtils
       end
     end
 
-    # One envelope for every tool, so an agent learns the shape once.
-    struct Response(T)
+    # The envelope for the searching tools, `find` and `grep`.
+    #
+    # `errors` and `errors_omitted` live here rather than in `Envelope`
+    # because they exist for a walk: a traversal accumulates filesystem
+    # trouble and carries on. A read either succeeds or fails.
+    struct SearchResponse(T)
       include JSON::Serializable
-      getter? ok : Bool
+      include Envelope
+
       getter results : Array(T)?
       getter summary : Summary?
-      getter truncated : Bool?
+      # Why the walk ended. `Envelope#truncated` says *that* the answer is a
+      # sample; this says which budget ran out.
       getter stop_reason : String?
-      # Prose aimed at the model. `stop_reason` is a fact; this is an action.
-      getter notice : String?
       getter errors : Array(String)?
       getter errors_omitted : Int32?
-      getter error : ErrorInfo?
 
       def initialize(
         @ok,
@@ -106,8 +93,8 @@ module FsUtils
       )
       end
 
-      def self.failure(code : String, message : String) : Response(T)
-        new(ok: false, error: ErrorInfo.new(code, message))
+      def self.failure(code : String, message : String, suggestion : String? = nil) : SearchResponse(T)
+        new(ok: false, error: ErrorInfo.new(code, message, suggestion))
       end
     end
 
@@ -133,12 +120,10 @@ module FsUtils
       max_matches : Int32 = 200,
       include_hidden : Bool = false,
       timeout_seconds : Float64 = 10.0,
-    ) : Response(FindResult)
+    ) : SearchResponse(FindResult)
       roots = @sandbox.resolve_all(paths)
-      missing = roots.find { |root| !::File.exists?(root) }
-      if missing
-        return Response(FindResult).failure(
-          ErrorCode::NOT_FOUND, "#{@sandbox.relative(missing)} does not exist")
+      if missing = missing_root(roots)
+        return SearchResponse(FindResult).failure(*not_found(missing))
       end
 
       entry_type = parse_type(type)
@@ -165,7 +150,7 @@ module FsUtils
       end
 
       results, dropped = fit(results)
-      Response(FindResult).new(
+      SearchResponse(FindResult).new(
         ok: true,
         results: results,
         summary: Summary.new(
@@ -180,9 +165,13 @@ module FsUtils
         errors_omitted: omitted_errors(report.errors),
       )
     rescue ex : Sandbox::Escape
-      Response(FindResult).failure(ErrorCode::OUTSIDE_SANDBOX, ex.message || "path outside sandbox")
-    rescue ex : ArgumentError | FsUtils::Error
-      Response(FindResult).failure(ErrorCode::INVALID_ARGUMENT, ex.message || "invalid argument")
+      SearchResponse(FindResult).failure(
+        ErrorCode::OUTSIDE_SANDBOX, ex.message || "path outside sandbox", outside_sandbox_suggestion)
+    rescue ex : FsUtils::Error
+      SearchResponse(FindResult).failure(
+        ErrorCode::INVALID_ARGUMENT, ex.message || "invalid argument", ex.suggestion)
+    rescue ex : ArgumentError
+      SearchResponse(FindResult).failure(ErrorCode::INVALID_ARGUMENT, ex.message || "invalid argument")
     end
 
     # ------------------------------------------------------------------ #
@@ -203,12 +192,10 @@ module FsUtils
       max_depth : Int32 = 25,
       include_hidden : Bool = false,
       timeout_seconds : Float64 = 10.0,
-    ) : Response(GrepResult)
+    ) : SearchResponse(GrepResult)
       roots = @sandbox.resolve_all(paths)
-      missing = roots.find { |root| !::File.exists?(root) }
-      if missing
-        return Response(GrepResult).failure(
-          ErrorCode::NOT_FOUND, "#{@sandbox.relative(missing)} does not exist")
+      if missing = missing_root(roots)
+        return SearchResponse(GrepResult).failure(*not_found(missing))
       end
 
       grep_mode = parse_mode(mode)
@@ -239,7 +226,7 @@ module FsUtils
       end
 
       results, dropped = fit(results)
-      Response(GrepResult).new(
+      SearchResponse(GrepResult).new(
         ok: true,
         results: results,
         summary: Summary.new(
@@ -256,17 +243,53 @@ module FsUtils
         errors_omitted: omitted_errors(report.errors),
       )
     rescue ex : Sandbox::Escape
-      Response(GrepResult).failure(ErrorCode::OUTSIDE_SANDBOX, ex.message || "path outside sandbox")
+      SearchResponse(GrepResult).failure(
+        ErrorCode::OUTSIDE_SANDBOX, ex.message || "path outside sandbox", outside_sandbox_suggestion)
     rescue ex : FsUtils::Error
-      code = ex.message.to_s.includes?("pattern") ? ErrorCode::INVALID_PATTERN : ErrorCode::INVALID_ARGUMENT
-      Response(GrepResult).failure(code, ex.message || "invalid argument")
+      code, suggestion = classify(ex)
+      SearchResponse(GrepResult).failure(code, ex.message || "invalid argument", suggestion)
     rescue ex : ArgumentError
-      Response(GrepResult).failure(ErrorCode::INVALID_ARGUMENT, ex.message || "invalid argument")
+      SearchResponse(GrepResult).failure(ErrorCode::INVALID_ARGUMENT, ex.message || "invalid argument")
     end
 
     # ------------------------------------------------------------------ #
     # Shared plumbing
     # ------------------------------------------------------------------ #
+
+    private def missing_root(roots : Array(String)) : String?
+      roots.find { |root| !::File.exists?(root) }
+    end
+
+    # The `not_found` triple, ready to splat into any response's `failure`.
+    private def not_found(path : String) : {String, String, String}
+      {ErrorCode::NOT_FOUND,
+       "#{@sandbox.relative(path)} does not exist",
+       not_found_suggestion(path)}
+    end
+
+    # A bad regex and a bad argument arrive as the same exception type, and
+    # only the message tells them apart.
+    private def classify(ex : FsUtils::Error) : {String, String?}
+      if ex.message.to_s.includes?("pattern")
+        {ErrorCode::INVALID_PATTERN,
+         "Escape the regex metacharacters, or set `fixed_string: true` \
+to match the text literally."}
+      else
+        {ErrorCode::INVALID_ARGUMENT, ex.suggestion}
+      end
+    end
+
+    # Suggestions are written once and shared, so `find` and `grep` do not
+    # drift into telling a model two different things about the same failure.
+    private def outside_sandbox_suggestion : String
+      "Paths must stay inside the workspace. Use a path relative to its root, \
+without `..`, and do not follow symlinks out of it."
+    end
+
+    private def not_found_suggestion(path : String) : String
+      "Check the spelling, or locate it with find_files using \
+`name: [#{::File.basename(path).inspect}]`."
+    end
 
     private def parse_type(type : String?) : Walk::EntryType?
       return unless type
@@ -276,7 +299,8 @@ module FsUtils
       when "symlink", "l"   then Walk::EntryType::Symlink
       else
         raise FsUtils::Error.new(
-          "unknown type #{type.inspect}; use file, directory or symlink")
+          "unknown type #{type.inspect}",
+          "Use one of: file, directory, symlink. Omit `type` to match any.")
       end
     end
 
@@ -285,7 +309,9 @@ module FsUtils
       when "lines" then Grep::Mode::Lines
       when "paths" then Grep::Mode::Paths
       else
-        raise FsUtils::Error.new("unknown mode #{mode.inspect}; use lines or paths")
+        raise FsUtils::Error.new(
+          "unknown mode #{mode.inspect}",
+          "Use \"lines\" for every matching line, or \"paths\" for one result per file.")
       end
     end
 

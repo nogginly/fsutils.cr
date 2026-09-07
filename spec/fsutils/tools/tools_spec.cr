@@ -94,6 +94,20 @@ describe FsUtils::Tools do
       end
     end
 
+    it "carries a suggestion on an unknown mode" do
+      with_tools do |tools, _, _|
+        json = parse(tools.grep(pattern: "x", mode: "sideways"))
+        json["error"]["suggestion"].as_s.should contain "paths"
+      end
+    end
+
+    it "suggests fixed_string on an invalid pattern" do
+      with_tools do |tools, _, _|
+        json = parse(tools.grep(pattern: "(unclosed"))
+        json["error"]["suggestion"].as_s.should contain "fixed_string"
+      end
+    end
+
     it "reports an unknown mode as an invalid argument" do
       with_tools do |tools, _, _|
         json = parse(tools.grep(pattern: "x", mode: "sideways"))
@@ -143,6 +157,27 @@ describe FsUtils::Tools do
         json["ok"].as_bool.should be_false
         json["error"]["code"].as_s.should eq "path_not_found"
         json["error"]["message"].as_s.should contain "nope"
+      end
+    end
+
+    it "tells the caller what the sandbox rule is" do
+      with_tools do |tools, _, _|
+        json = parse(tools.grep(pattern: "TODO", paths: ["../outside"]))
+        json["error"]["suggestion"].as_s.should contain "workspace"
+      end
+    end
+
+    it "suggests a way to locate a missing path" do
+      with_tools do |tools, _, _|
+        json = parse(tools.find(paths: ["nope"]))
+        json["error"]["suggestion"].as_s.should contain "find_files"
+      end
+    end
+
+    it "omits the suggestion when there is nothing useful to say" do
+      with_tools do |tools, _, _|
+        json = parse(tools.find(name: ["*.cr"]))
+        json.as_h.has_key?("error").should be_false
       end
     end
 
