@@ -20,6 +20,12 @@ module FsUtils
     PERMISSION_DENIED = "permission_denied"
     TOO_LARGE         = "too_large"
 
+    # Replacing
+    NO_MATCH          = "no_match"
+    NOT_UNIQUE        = "not_unique"
+    STRINGS_IDENTICAL = "strings_identical"
+    EMPTY_OLD_STRING  = "empty_old_string"
+
     # Writing
     FILE_EXISTS          = "file_exists"
     PARENT_NOT_DIRECTORY = "parent_not_directory"
@@ -71,4 +77,8 @@ module FsUtils
   def_error WriteFailedError, ErrorCode::WRITE_FAILED
   def_error InvalidPatternError, ErrorCode::INVALID_PATTERN
   def_error OutsideSandboxError, ErrorCode::OUTSIDE_SANDBOX
+  def_error NoMatchError, ErrorCode::NO_MATCH
+  def_error NotUniqueError, ErrorCode::NOT_UNIQUE
+  def_error StringsIdenticalError, ErrorCode::STRINGS_IDENTICAL
+  def_error EmptyOldStringError, ErrorCode::EMPTY_OLD_STRING
 end

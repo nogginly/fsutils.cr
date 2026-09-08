@@ -4,6 +4,7 @@ require "./tools/envelope"
 require "./tools/sandbox"
 require "./tools/read"
 require "./tools/write"
+require "./tools/replace"
 require "./tools/schemas"
 
 module FsUtils

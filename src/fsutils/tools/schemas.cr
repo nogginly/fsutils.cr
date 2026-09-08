@@ -119,6 +119,35 @@ module FsUtils
       }
       JSON
 
+    REPLACE_SCHEMA = <<-JSON
+      {
+        "name": "text_replace",
+        "description": "Replace a literal string in a text file. Matching is exact — no regular expressions, no fuzzy matching — including all whitespace and indentation, so copy the text from a read of the file rather than retyping it. By default old_string must occur exactly once; if it occurs several times the call is refused and every location is reported, so extend old_string with surrounding context or set replace_all. The result returns each change in context so you can confirm it landed where you meant without reading the file again. All paths are relative to the workspace root.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File to edit, relative to the workspace root."
+            },
+            "old_string": {
+              "type": "string",
+              "description": "Exact literal text to find, whitespace included. Must not be empty."
+            },
+            "new_string": {
+              "type": "string",
+              "description": "Replacement text. May be empty, which deletes the matched text. Must differ from old_string."
+            },
+            "replace_all": {
+              "type": "boolean",
+              "description": "Replace every occurrence. Default false, which asserts there is exactly one and refuses otherwise. Use true for a rename, where the count does not matter."
+            }
+          },
+          "required": ["path", "old_string", "new_string"]
+        }
+      }
+      JSON
+
     GREP_SCHEMA = <<-JSON
       {
         "name": "search_file_contents",
