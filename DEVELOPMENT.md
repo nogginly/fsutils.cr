@@ -20,6 +20,27 @@ Command                        |Description
 `ops clean`                    |Remove debug and release build files                                           
 `ops wipe`                     |In addition to cleaning, remove all compiler caches                            
 
+## Samples
+
+`ops build-debug` builds four command-line tools from `samples/` into
+`bin/debug`. They exist to exercise the helpers from outside a spec file, which
+is a different test: specs assert behaviour, but only a caller reveals whether
+the API is pleasant to hold.
+
+Binary      |Helper             |Demonstrates                                                           
+------------|-------------------|-----------------------------------------------------------------------
+`fsu-find`  |`Find`             |Bounded breadth-first search, and why a walk stopped                   
+`fsu-grep`  |`Grep`             |Content search, per-file and per-directory caps, `--files-with-matches`
+`fsu-cat`   |`Reader`           |Line ranges, and telling a truncated read from a short file            
+`fsu-rename`|`Grep` + `Replacer`|Composing two helpers; diffs previewed before anything is written      
+
+Each prints its result to stdout and its report to stderr, so `fsu-grep TODO src > hits.txt`
+keeps the output clean while leaving the diagnostics visible.
+
+New samples go in `samples/`, get a target in `shard.yml` prefixed `fsu-` so
+they cannot shadow a real tool on someone's `PATH`, and are linted along with
+`src/` by `ops lint`.
+
 ## Contributions
 
 See [README](./README.md)

@@ -65,6 +65,89 @@ module FsUtils
       }
       JSON
 
+    READ_SCHEMA = <<-JSON
+      {
+        "name": "read_text_file",
+        "description": "Read a text file, whole or by line range. Output is line-numbered by default so you can cite regions back to search_file_contents or a follow-up read without recounting. Check `truncated`: a long file returns its first page plus a notice telling you how to continue. `total_lines` is always the file's real length, so you can tell how much you have not seen. All paths are relative to the workspace root.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File to read, relative to the workspace root."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "First line to return, 1-based, matching the numbering in the output. Omit to start at the beginning."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum lines to return. Omit for the default of 2000. Note: when you give an explicit offset or limit and the range is too large to return, the call fails rather than silently returning less."
+            },
+            "line_numbers": {
+              "type": "boolean",
+              "description": "Prefix each line with its number. Default true. Set false only when you need the file's exact bytes."
+            }
+          },
+          "required": ["path"]
+        }
+      }
+      JSON
+
+    WRITE_SCHEMA = <<-JSON
+      {
+        "name": "write_text_file",
+        "description": "Create a text file, or replace one in full. Writes exactly what you supply — no trailing newline is added and nothing is normalised. Replacing an existing file requires overwrite: true, and the call is refused otherwise so a file you did not know was there cannot be destroyed. Missing parent directories are created and reported back; an unexpected entry in parents_created usually means a mistyped path. For a partial change use text_replace instead. All paths are relative to the workspace root.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File to write, relative to the workspace root."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full contents of the file. May be empty, which writes an empty file."
+            },
+            "overwrite": {
+              "type": "boolean",
+              "description": "Permits replacing an existing file. Default false. Ignored when the path does not exist. Check `created` in the result: false means you replaced something."
+            }
+          },
+          "required": ["path", "content"]
+        }
+      }
+      JSON
+
+    REPLACE_SCHEMA = <<-JSON
+      {
+        "name": "text_replace",
+        "description": "Replace a literal string in a text file. Matching is exact — no regular expressions, no fuzzy matching — including all whitespace and indentation, so copy the text from a read of the file rather than retyping it. By default old_string must occur exactly once; if it occurs several times the call is refused and every location is reported, so extend old_string with surrounding context or set replace_all. The result returns each change in context so you can confirm it landed where you meant without reading the file again. All paths are relative to the workspace root.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File to edit, relative to the workspace root."
+            },
+            "old_string": {
+              "type": "string",
+              "description": "Exact literal text to find, whitespace included. Must not be empty."
+            },
+            "new_string": {
+              "type": "string",
+              "description": "Replacement text. May be empty, which deletes the matched text. Must differ from old_string."
+            },
+            "replace_all": {
+              "type": "boolean",
+              "description": "Replace every occurrence. Default false, which asserts there is exactly one and refuses otherwise. Use true for a rename, where the count does not matter."
+            }
+          },
+          "required": ["path", "old_string", "new_string"]
+        }
+      }
+      JSON
+
     GREP_SCHEMA = <<-JSON
       {
         "name": "search_file_contents",

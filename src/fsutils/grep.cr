@@ -307,7 +307,9 @@ module FsUtils
       @regex = begin
         Regex.new(source, options)
       rescue ex : ArgumentError
-        raise Error.new("invalid pattern #{@pattern.inspect}: #{ex.message}")
+        raise InvalidPatternError.new(
+          "invalid pattern #{@pattern.inspect}: #{ex.message}",
+          "Escape the regex metacharacters, or set `fixed_string: true` to match the text literally.")
       end
     end
 

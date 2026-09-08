@@ -1,14 +1,9 @@
 module FsUtils
   class Tools
-    # Codes are a closed set, so a model can branch on them. Closed does not
-    # mean short — it means enumerated here rather than invented at the call
-    # site.
-    module ErrorCode
-      OUTSIDE_SANDBOX  = "path_outside_sandbox"
-      NOT_FOUND        = "path_not_found"
-      INVALID_PATTERN  = "invalid_pattern"
-      INVALID_ARGUMENT = "invalid_argument"
-    end
+    # The codes live in `FsUtils::ErrorCode`, because the helpers that detect
+    # a failure are what know its kind. Aliased here so tool-layer code can go
+    # on saying `ErrorCode::NOT_FOUND`.
+    alias ErrorCode = FsUtils::ErrorCode
 
     # `message` says what happened; `suggestion` says what to do instead.
     #

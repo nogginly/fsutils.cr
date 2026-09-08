@@ -17,3 +17,7 @@ targets:
     main: samples/find.cr
   fsu-grep:
     main: samples/grep.cr
+  fsu-cat:
+    main: samples/cat.cr
+  fsu-rename:
+    main: samples/rename.cr

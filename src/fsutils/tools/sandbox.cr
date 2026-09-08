@@ -17,9 +17,12 @@ module FsUtils
     # sandbox.resolve("../etc")      # raises Escape
     # ```
     struct Sandbox
-      # Raised when a requested path resolves outside the root. Surfaces to an
-      # agent as the `path_outside_sandbox` error code.
-      class Escape < FsUtils::Error
+      # Raised when a requested path resolves outside the root.
+      #
+      # A member of the typed error family rather than a special case, so the
+      # tool layer reads its code like any other and no `case` has to remember
+      # to test it before `FsUtils::Error`.
+      class Escape < FsUtils::OutsideSandboxError
       end
 
       # The canonical root. Absolute, symlinks resolved, no trailing separator.
@@ -55,7 +58,11 @@ module FsUtils
                  end
 
         candidate = canonical(::File.expand_path(joined))
-        raise Escape.new("path #{requested.inspect} resolves outside the sandbox") unless inside?(candidate)
+        unless inside?(candidate)
+          raise Escape.new(
+            "path #{requested.inspect} resolves outside the sandbox",
+            "Paths must stay inside the workspace. Use a path relative to its root, without `..`, and do not follow symlinks out of it.")
+        end
         candidate
       end
 
