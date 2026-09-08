@@ -27,6 +27,7 @@ module FsUtils
     # A window of changed content, before and after.
     #
     # `before` is sliced from the file as read and `after` from the file as
+    # written — or, under `dry_run`, from the exact bytes that *would* have been
     # written — neither is recomputed by re-applying the substitution to a
     # snippet. A recomputed `after` would make this report a re-derivation of
     # the edit rather than evidence of it: should the splice and the
@@ -46,7 +47,8 @@ module FsUtils
       lines_delta : Int32,
       hunks : Array(Hunk),
       hunks_omitted : Int32,
-      stripped_prefixes : Bool
+      stripped_prefixes : Bool,
+      written : Bool
 
     def initialize(
       @path : String,
@@ -60,6 +62,10 @@ module FsUtils
       # `old_string`: a tab-separated data file read without numbering would
       # satisfy the same pattern and must not be stripped.
       @strip_numbered_prefixes : Bool = false,
+      # Compute everything, write nothing. "Show me what this would do" is a
+      # reasonable question, and answering it from the caller's side would
+      # mean duplicating the matching and hunk logic outside this class.
+      @dry_run : Bool = false,
     )
       raise ArgumentError.new("path must not contain null bytes") if @path.includes?('\0')
 
@@ -85,7 +91,7 @@ module FsUtils
       targets = @replace_all ? offsets : offsets[0, 1]
       updated = splice(original, targets, needle)
 
-      Writer.new(@path, updated).write
+      Writer.new(@path, updated).write unless @dry_run
 
       build_result(original, updated, targets, needle, stripped)
     end
@@ -237,6 +243,7 @@ replace_all: true to change every occurrence.")
         hunks: omitted > 0 ? hunks[0, @max_hunks] : hunks,
         hunks_omitted: omitted,
         stripped_prefixes: stripped,
+        written: !@dry_run,
       )
     end
 

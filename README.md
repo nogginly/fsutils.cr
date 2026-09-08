@@ -151,14 +151,29 @@ Four things to know:
 `REPLACE_SCHEMA` ship the JSON Schema for each tool, so a host can register them
 without hand-writing a description that drifts from the code.
 
-See [DESIGN](./DESIGN.md) for the reasoning, and `samples/` for two small
+See [DESIGN](./DESIGN.md) for the reasoning, and `samples/` for four small
 command-line tools built on the helpers:
 
 ```sh
 ops build-debug
-./bin/debug/fsu-grep TODO src -t cr
+
 ./bin/debug/fsu-find src --name "*.cr" --max-matches 20
+./bin/debug/fsu-grep TODO src -t cr
+./bin/debug/fsu-cat src/find.cr --offset 40 --limit 20
+
+# Preview a rename across the tree; nothing is written without --write.
+./bin/debug/fsu-rename UnknownTool MissingTool src -t cr
 ```
+
+`fsu-rename` is the one worth reading. It composes two helpers — `Grep` in
+`Paths` mode to find candidate files, then `Replacer` on each — and prints
+every change as a diff before touching anything, which is what the design
+document means by a rename being a sequence of independently verifiable
+single-file edits.
+
+These are demonstrations rather than command-line work-alikes. `fsu-grep`
+borrows `grep`'s short flags where they mean the same thing; the others spell
+their own.
 
 ## Development
 

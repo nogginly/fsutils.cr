@@ -207,6 +207,33 @@ describe FsUtils::Replacer do
     end
   end
 
+  describe "dry run" do
+    it "computes everything and writes nothing" do
+      with_content("one\ntwo\nthree\n") do |path|
+        result = FsUtils::Replacer.new(path, "two", "TWO", dry_run: true).replace
+
+        result.replacements.should eq 1
+        result.written.should be_false
+        result.hunks.first.after.should contain "TWO"
+        File.read(path).should eq "one\ntwo\nthree\n"
+      end
+    end
+
+    it "still refuses what a real run would refuse" do
+      with_content("x\na\nx\n") do |path|
+        expect_raises(FsUtils::NotUniqueError) do
+          FsUtils::Replacer.new(path, "x", "y", dry_run: true).replace
+        end
+      end
+    end
+
+    it "reports written on a real run" do
+      with_content("one\n") do |path|
+        FsUtils::Replacer.new(path, "one", "two").replace.written.should be_true
+      end
+    end
+  end
+
   describe "numbered prefixes" do
     it "strips them only when told the read was numbered" do
       with_content("alpha\nbeta\n") do |path|
