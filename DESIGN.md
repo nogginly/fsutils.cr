@@ -1,7 +1,7 @@
 # FsUtils — Design
 
-File system utilities as Crystal classes, so a program can search a tree without
-shelling out. Zero runtime dependencies; stdlib only.
+File system utilities as Crystal classes, so a program can search and edit a
+tree without shelling out. Zero runtime dependencies; stdlib only.
 
 The shard has two audiences and they want opposite things.
 
@@ -12,13 +12,24 @@ what you *didn't* show me. Trying to serve both from one class produces somethin
 that serves neither, so the shard is two layers.
 
 ```
-FsUtils::Tools   # singletons: sandboxed, buffered, JSON, never raise
+FsUtils::Tools                              # sandboxed, buffered, JSON, never raises
       │
-FsUtils::Find    FsUtils::Grep    # helpers: streaming, typed, may raise
-      └──────┬──────┘
-FsUtils::Walker(P)                # one bounded breadth-first traversal
-FsUtils::Walk                     # the types both layers speak: Entry, Report, Policy
+      ├── Find   Grep                       # searching: streaming, typed, may raise
+      │     └──────┬──────┘
+      │     Walker(P)                       # one bounded breadth-first traversal
+      │     Walk                            # Entry, Report, Policy
+      │
+      └── Reader  Writer  Replacer          # text: whole-file, typed, may raise
+            └────────┬────────┘
+            Text                            # binary sniffing, line clamping
+
+FsUtils::Error / ErrorCode                  # the failure vocabulary, shared by both
 ```
+
+The searching side streams because a walk can find more than fits in memory.
+The text side does not: a file small enough to edit is small enough to hold, and
+`Replacer` in particular needs the whole before and after in hand at once to cut
+its report from them.
 
 ## The thesis, stated once
 
@@ -332,8 +343,8 @@ Each is easy to bolt on later; none is needed to make the tool useful.
 
 ## Shared vocabulary
 
-Both helpers use one set of names and defaults, because an agent that has learned
-one tool should not be ambushed by the next.
+The searching helpers use one set of names and defaults, because an agent that
+has learned one tool should not be ambushed by the next.
 
 Concept           |Decision                                                                
 ------------------|------------------------------------------------------------------------
@@ -347,6 +358,144 @@ Failure           |`FsUtils::Error`; `ArgumentError` reserved for genuine progra
 Filesystem trouble|collected into `errors`, never raised                                   
 
 A helper instance is single-use per `run` and not thread-safe. Spawn a new one.
+The same holds for the text helpers, whose entry points are `read`, `write` and
+`replace` rather than `run` — each does one thing to one file and is then spent.
+
+Across both sides the constants that matter are the same three: `FsUtils::Error`
+for caller error with an optional `suggestion`, `FsUtils::ErrorCode` for its
+kind, and `FsUtils::Text` for questions about content.
+
+---
+
+## The text helpers
+
+`Reader`, `Writer` and `Replacer` read and edit one file at a time. They share
+the searching side's contract — raise on caller error, know nothing of sandboxes
+or JSON — and share `FsUtils::Text` for the two questions any of them may need
+to ask about content: is this binary, and is this line absurdly long.
+
+They do not share `Walker`, because none of them traverses anything.
+
+### `Reader`
+
+One streaming pass renders the requested window and counts every line to the
+end. The second half of that costs a pass over the tail for no output, and is
+worth it: `total_lines` is then exact, and an exact total is what lets a caller
+judge how much it is missing without a second call. An estimate would make the
+notice's "of 8,431" a guess in the one field used to decide whether to read on.
+
+Output is line-numbered by default, `cat -n` style, and the numbers are the
+file's own — a read at `offset: 12` opens at `12`, not at `1`. The numbering is
+an address space: without it a model cannot cite a region, cannot construct a
+targeted follow-up read, and must re-read the whole file to recover. Nothing
+announces that failure; it simply reasons more vaguely. Numbers present when
+unwanted cost a few tokens a line, which is the cheaper mistake, so the default
+sits there.
+
+Numbers also make truncation legible. On a view of lines 2001–4000 the content
+states its own position at every line, independent of the `range` field —
+redundancy exactly where position is easiest to lose.
+
+**Two truncation policies**, and the distinction is the tool's most consequential
+behaviour. An *implicit* read that overflows returns the first page and a notice:
+the caller asked for the file, so a page is a helpful answer. An *explicit* range
+that overflows is refused: the caller asked for something precise and was wrong
+about its size, and quietly returning less would let it proceed believing it saw
+the whole span.
+
+That requires knowing whether a range was asked for, which is why `offset` and
+`limit` are nilable at the tool boundary rather than defaulted. Defaults in the
+signature would erase the distinction before anything could act on it.
+
+Overflow is measured in bytes, not lines: 500 lines of minified JSON can exceed
+a budget that 5,000 lines of source would not. Individual lines are clamped
+separately, which sets `truncation_reason` but not `truncated` — a file whose
+lines are mostly clamped is a file that wants `grep`, and the notice says so.
+
+An empty file and an offset past the end are **answers, not errors**. Both come
+back `ok: true` with a notice, because a model that cannot tell "empty" from
+"missing" concludes the wrong thing about both.
+
+### `Writer`
+
+Whole files only. Partial changes are `Replacer`'s job, and giving one schema
+two parameter vocabularies and two guards would serve neither.
+
+Content is written exactly as supplied: no trailing newline appended, no line
+endings normalised, no whitespace trimmed. Anything the tool adds makes its
+output differ from its input, which is a small lie told in the one place
+precision matters — and it would undermine the claim, once a session log exists,
+that a write is as good as a read because the caller supplied the bytes.
+
+Writes are atomic: temp file in the destination directory, `fsync`, inherit the
+destination's permissions, rename. A failed write leaves the original intact
+rather than truncated, which matters most in exactly the case the overwrite
+guard protects — replacing a file the caller cannot reconstruct.
+
+**The guard is policy and lives in `Tools`, not here.** `Writer` will replace
+whatever it is pointed at. A Crystal caller writing a file it just composed does
+not need to be asked twice; a language model does. The asymmetry that makes the
+guard acceptable is that `overwrite: false` never destroys anything in any
+state: a call that sometimes refuses is recoverable, because the error names the
+missing precondition and the caller satisfies it in one step, whereas a call
+that sometimes destroys is not, because nothing tells the caller which world it
+was in until the content is gone.
+
+Missing parent directories are created without a guard, because creating a
+directory destroys nothing — the worst outcome is an empty directory in the
+wrong place, which is visible and trivially removed. They are *reported*, which
+catches the failure a flag would have caught: a write to `src/harnes/main.cr`,
+typo included, succeeding silently.
+
+### `Replacer`
+
+String-addressed editing, literal matching only. Four rules:
+
+1. **Assert, do not select.** The caller states what it believes about the file;
+   the tool verifies or refuses. It never picks a match on the caller's behalf.
+2. **Fail loudly, never at the wrong place.** A silent edit at an unintended
+   location is worse than any refusal.
+3. **Show the work.** Every replacement comes back in context.
+4. **Match literally.** No regular expressions, no fuzzy inference.
+
+**Why `replace_all` is a boolean** rather than an index or a count. An ordinal
+selector — *replace the third match* — asks the caller to have counted correctly
+in a file it may have read only in part, and when the count is wrong the edit
+succeeds at the wrong location, silently. A count assertion fails safely where an
+ordinal does not, but still asks for a tally across the whole file, which is
+guesswork after a partial read. A boolean asks for neither: `false` asserts
+*there is exactly one*, which a caller can know from having read the region, and
+`true` covers the rename case where the count is irrelevant. The real
+distribution of edits is one or all.
+
+**Hunks are sliced from real content**, `before` from the file as read and
+`after` from the file as written. Neither is recomputed by re-applying the
+substitution to a snippet. A recomputed `after` would make the report a
+re-derivation of the edit rather than evidence of it: should the splice and the
+recomputation diverge, the result would assert the right thing happened while
+the wrong thing sat on disk. Recomputation also has a specific bug — applying a
+first-match substitution inside an expanded window can hit an earlier occurrence
+that context expansion pulled into view, not the one actually edited.
+
+Windows expand three lines either side and merge when they overlap or abut, so
+two edits four lines apart give one hunk of seven lines rather than two with
+duplicated context. That is why `replacements` is a separate field from
+`hunks.size`. Each hunk carries both line ranges: `start_line_after` shifts by
+the deltas of edits before it, `end_line_after` also absorbs the deltas within
+it, and `lines_delta` tells a caller how stale its own line numbers now are.
+
+**Indentation is diagnosed, not accommodated.** Exact-match failure, not
+ambiguity, is how string editors mostly fail, and the usual response is to
+soften matching until something hits — which produces a tool whose behaviour is
+a function of more than its inputs and whose mistakes are invisible by
+construction. Instead: a second pass with leading whitespace flattened locates
+where the text *would* have matched, nothing is written, and the refusal names
+the lines and the difference. The caller retries once, correctly. That costs a
+turn, and the error message is where the cost is recovered.
+
+Note the mismatch only bites across a newline. A single line indented less than
+the file's is a literal substring of it and simply matches, which is correct and
+surprising enough to be worth knowing.
 
 ---
 
@@ -368,7 +517,9 @@ Arguments are flat and JSON-friendly — strings, ints, string arrays; no
 place. Enum-ish arguments (`type`, `mode`) are taken as strings and parsed here,
 so an unknown value becomes an error code rather than an exception.
 
-Each method returns a `Response(T)`, not a serialised string. A host writes
+There are five: `find` and `grep` for searching, `read`, `write` and
+`text_replace` for text. Each method returns its own response type, not a
+serialised string. A host writes
 `.to_json`; a Crystal caller can read `ok?` without re-parsing what was just
 serialised. Nil fields are **omitted** rather than emitted as `null`, so a clean
 result is a small one and a host can test for a key's presence.
@@ -549,12 +700,20 @@ explicitly.
 ## Roadmap
 
 Done: the `Walker` extraction, `Find` and `Grep` rebased onto it, `Tools` over
-both, and `read_text_file` and `write_text_file` over `Reader` and `Writer`.
+both, and the three text tools over `Reader`, `Writer` and `Replacer`.
 
-Next: `text_replace`, scoped in its own document.
+Next, in rough order:
 
-The text tools ship **stateless first**. The scope documents assume a session-scoped
-read log, which is what makes `write_text_file` refuse to overwrite a file the
+1. **Configurability.** The limits are the helpers' to configure but the tool
+   layer hardcodes what it passes down, so a host cannot raise the read budget
+   or lower the write ceiling. The helpers already take every limit as a
+   constructor argument, so closing this means threading one configuration
+   object through `Tools.new` rather than changing five files.
+2. **The session read log**, below.
+3. `ls` with metadata, and `tree` with a depth cap.
+
+The text tools shipped **stateless first**. The scope documents assume a
+session-scoped read log, which is what makes `write_text_file` refuse to overwrite a file the
 caller has not seen, and what lets `text_replace` strip numbered prefixes safely.
 Without it, `overwrite: false` still refuses to clobber an existing file, but
 `file_exists_unread` cannot fire, and a prefix-laden `old_string` can only be
@@ -563,17 +722,18 @@ in safety and are recorded here so nobody assumes otherwise from the scope
 documents. As shipped, `Tools#write` catches "you did not know this file was
 here"; it cannot catch "you knew, but you have not looked".
 
-A related debt: the limits are the helpers' to configure but the tool layer
-hardcodes what it passes down, so a host cannot raise the read budget or lower
-the write ceiling. The helpers already take every limit as a constructor
-argument, so closing this means threading one configuration object through
-`Tools.new` rather than changing five files.
+`Replacer` already takes the `strip_numbered_prefixes` argument the log would
+supply; nothing passes it yet. That is a hook rather than a feature, and it is
+inert until a session exists.
 
 The log, when it comes, should be an interface a host supplies rather than
 machinery this shard owns — and nilable, so the guards read "if a session is
 present, check". State that outlives a call is the host's to manage.
 
-After that: `ls` with metadata, and `tree` with a depth cap. Note that the TOCTOU
-gap above is tolerable for reads and considerably less so for writes: temp-file
-and rename protects against a partial write, not against writing through a
-symlink swapped in after resolution.
+One more thing the writing tools change. The TOCTOU gap recorded in the sandbox
+section was assessed when everything here was read-only, and writes alter the
+calculation: the same race now means resolving a path and then *writing through*
+a symlink swapped in behind you. Temp-file-and-rename protects against a partial
+write, not against writing to the wrong place. It remains acceptable for an
+agent working in a trusted workspace and is now firmly unacceptable if a hostile
+local process shares the filesystem.
