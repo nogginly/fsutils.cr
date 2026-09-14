@@ -76,14 +76,15 @@ find = begin
     exclude: exclude,
     type: type,
     min_depth: min_depth,
-    max_depth: max_depth,
-    max_matches: max_matches,
-    max_matches_per_dir: per_dir,
-    timeout: timeout.seconds,
-    follow_symlinks: follow,
-    include_hidden: include_hidden,
-    skip_dirs: skip_dirs,
-  )
+  ) do |settings|
+    settings.max_depth = max_depth
+    settings.max_matches = max_matches
+    settings.max_matches_per_dir = per_dir
+    settings.timeout = timeout.seconds
+    settings.follow_symlinks = follow
+    settings.include_hidden = include_hidden
+    settings.skip_dirs = skip_dirs
+  end
 rescue ex : ArgumentError
   abort "fsu-find: #{ex.message}"
 end

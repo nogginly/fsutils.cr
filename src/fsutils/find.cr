@@ -111,9 +111,29 @@ module FsUtils
       end
     end
 
+    # The bounds this search honours. `Find` adds nothing to the traversal's
+    # own, so the two are the same type.
+    alias Settings = Walk::Settings
+
     # Convenience: a single root as a String.
     def self.new(root : String, **args)
       new([root], **args)
+    end
+
+    # Block form: the settings are yielded for amendment before the search is
+    # built.
+    #
+    # ```
+    # FsUtils::Find.new("src", name: ["*.cr"]) { |s| s.max_matches = 50 }
+    # ```
+    def self.new(roots : Array(String), **args, &)
+      settings = Settings.new
+      yield settings
+      new(roots, **args, settings: settings)
+    end
+
+    def self.new(root : String, **args, &)
+      new([root], **args) { |settings| yield settings }
     end
 
     def initialize(
@@ -123,26 +143,17 @@ module FsUtils
       exclude : Array(String) = [] of String,
       type : EntryType? = nil,
       min_depth : Int32 = 0,
-      @max_depth : Int32 = 32,
-      @max_matches : Int32 = 1_000,
-      @max_matches_per_dir : Int32 = 100,
-      @max_entries_scanned : Int32 = 100_000,
-      @timeout : Time::Span = 10.seconds,
-      @follow_symlinks : Bool = false,
-      @include_hidden : Bool = false,
       min_size : Int64? = nil,
       max_size : Int64? = nil,
       newer_than : Time? = nil,
       older_than : Time? = nil,
       case_insensitive : Bool = false,
-      @skip_dirs : Array(String) = DEFAULT_SKIP_DIRS,
+      @settings : Settings = Settings.new,
     )
       # Validated here as well as in `Walker` so nonsense is caught at
       # construction rather than at `run`.
       raise ArgumentError.new("at least one root is required") if @roots.empty?
-      raise ArgumentError.new("max_matches must be positive") if @max_matches < 1
-      raise ArgumentError.new("max_matches_per_dir must be positive") if @max_matches_per_dir < 1
-      raise ArgumentError.new("max_depth must not be negative") if @max_depth < 0
+      @settings.validate!
       raise ArgumentError.new("min_depth must not be negative") if min_depth < 0
 
       @criteria = Criteria.new(
@@ -160,18 +171,7 @@ module FsUtils
     end
 
     def run(&block : Match ->) : Report
-      walker = Walker.new(
-        Filter.new(@criteria, block),
-        @roots,
-        max_matches: @max_matches,
-        max_matches_per_dir: @max_matches_per_dir,
-        max_entries_scanned: @max_entries_scanned,
-        max_depth: @max_depth,
-        timeout: @timeout,
-        follow_symlinks: @follow_symlinks,
-        include_hidden: @include_hidden,
-        skip_dirs: @skip_dirs,
-      )
+      walker = Walker.new(Filter.new(@criteria, block), @roots, @settings)
       Report.new(walker.run)
     end
   end

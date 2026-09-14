@@ -39,10 +39,16 @@ private def with_tree(&)
   end
 end
 
-private def collect(root, **args) : {Array(String), FsUtils::Find::Report}
+private def collect(root, settings = FsUtils::Find::Settings.new, **args) : {Array(String), FsUtils::Find::Report}
   paths = [] of String
-  report = FsUtils::Find.new(root, **args).run { |m| paths << m.path }
+  report = FsUtils::Find.new(root, **args, settings: settings).run { |m| paths << m.path }
   {paths, report}
+end
+
+private def bounds(&) : FsUtils::Find::Settings
+  settings = FsUtils::Find::Settings.new
+  yield settings
+  settings
 end
 
 private def names(paths)
@@ -88,14 +94,14 @@ describe FsUtils::Find do
 
   it "enters deny-listed directories when the list is cleared" do
     with_tree do |root|
-      paths, _ = collect(root, name: ["junk.cr"], skip_dirs: [] of String)
+      paths, _ = collect(root, bounds { |s| s.skip_dirs = [] of String }, name: ["junk.cr"])
       names(paths).should eq %w[junk.cr]
     end
   end
 
   it "honours max_matches and reports the reason" do
     with_tree do |root|
-      paths, report = collect(root, name: ["*.txt"], max_matches: 3)
+      paths, report = collect(root, bounds { |s| s.max_matches = 3 }, name: ["*.txt"])
       paths.size.should eq 3
       report.matches.should eq 3
       report.stop_reason.should eq FsUtils::Find::StopReason::MaxMatches
@@ -105,7 +111,7 @@ describe FsUtils::Find do
 
   it "stops one directory from dominating the results" do
     with_tree do |root|
-      paths, report = collect(root, name: ["*.txt"], max_matches_per_dir: 5)
+      paths, report = collect(root, bounds { |s| s.max_matches_per_dir = 5 }, name: ["*.txt"])
       fat = paths.count { |p| p.includes?("/fat/") }
       fat.should eq 5
       # The rest of the tree still gets a look in.
@@ -128,7 +134,7 @@ describe FsUtils::Find do
 
   it "terminates on a symlink loop when following symlinks" do
     with_tree do |root|
-      paths, report = collect(root, name: ["a.txt"], follow_symlinks: true)
+      paths, report = collect(root, bounds { |s| s.follow_symlinks = true }, name: ["a.txt"])
       paths.size.should eq 1
       report.pruned.should be > 0
       report.stop_reason.should eq FsUtils::Find::StopReason::Completed
@@ -147,7 +153,7 @@ describe FsUtils::Find do
 
   it "respects max_depth and min_depth" do
     with_tree do |root|
-      shallow, _ = collect(root, name: ["*.txt"], max_depth: 1)
+      shallow, _ = collect(root, bounds { |s| s.max_depth = 1 }, name: ["*.txt"])
       names(shallow).should_not contain "d.txt"
 
       deep, _ = collect(root, name: ["*.txt"], min_depth: 3)
@@ -160,7 +166,7 @@ describe FsUtils::Find do
       without, _ = collect(root, name: [".hidden.txt"])
       without.should be_empty
 
-      with_hidden, _ = collect(root, name: [".hidden.txt"], include_hidden: true)
+      with_hidden, _ = collect(root, bounds { |s| s.include_hidden = true }, name: [".hidden.txt"])
       with_hidden.size.should eq 1
     end
   end
@@ -224,7 +230,7 @@ describe FsUtils::Find do
 
   it "rejects nonsense arguments" do
     expect_raises(ArgumentError) { FsUtils::Find.new([] of String) }
-    expect_raises(ArgumentError) { FsUtils::Find.new(".", max_matches: 0) }
+    expect_raises(ArgumentError) { FsUtils::Find.new(".") { |settings| settings.max_matches = 0 } }
     expect_raises(ArgumentError) { FsUtils::Find.new(".", min_depth: -1) }
   end
 

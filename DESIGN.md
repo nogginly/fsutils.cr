@@ -191,7 +191,7 @@ A `find(1)`-flavoured filter over `Walker`. Nothing is buffered: the block sees
 each hit as it is found, so memory is O(frontier), not O(results).
 
 ```crystal
-report = FsUtils::Find.new("src", name: ["*.cr"], max_matches: 200).run do |m|
+report = FsUtils::Find.new("src", name: ["*.cr"]) { |s| s.max_matches = 200 }.run do |m|
   puts "#{m.path} (#{m.size} bytes)"
 end
 report.truncated? # => did we stop early, and why
@@ -222,7 +222,7 @@ Content search over the same traversal. Matches are yielded as found — the cla
 never accumulates a result array, so memory stays flat regardless of tree size.
 
 ```crystal
-report = FsUtils::Grep.new("TODO", "src", max_matches: 200).run do |m|
+report = FsUtils::Grep.new("TODO", "src") { |s| s.max_matches = 200 }.run do |m|
   puts "#{m.relative_path}:#{m.line_number}:#{m.column}: #{m.line}"
 end
 ```
@@ -687,6 +687,38 @@ below is absent unless it has something to say. Five things earn their place:
   stopped early, if any file or directory forfeited a remainder, or if results
   were dropped to fit the budget — every reason the answer might be a sample.
 
+### Configuration
+
+A host hands `Tools.new` a `Config`. One object, one layer: the helpers already
+take their bounds as `Settings`, so the tool layer's only job is to hold the
+host's numbers and hand each call a copy.
+
+`Config` is *not* the helpers' `Settings`, and the duplication is deliberate.
+The two are asked for different things. A YAML document wants
+`timeout_seconds: 10.0`; `Grep` wants a `Time::Span`. A host wants sections
+named after the tools it is configuring, so that a shallow `grep` and a deep
+`find` can coexist; the helpers do not have a notion of "the grep tool" at all.
+And `Settings` carries fields no host should set per session — `dry_run`,
+`strip_numbered_prefixes` — which say what to do rather than how much of it is
+allowed. Sharing one type would have meant a serialisation dependency in a
+layer that is meant to know nothing about JSON, plus a converter for the span
+anyway. Each section answers `to_settings`, and a spec sets every field of
+every section and checks it arrives, so a field added on one side and forgotten
+on the other fails rather than silently ignoring a host's YAML.
+
+Configured values are **defaults** for the arguments a model may pass, and
+**hard limits** for everything it may not. The distinction currently costs no
+code: the model can set `max_matches`, `max_depth`, `include_hidden`,
+`timeout_seconds`, `offset` and `limit`, and none of those is a byte budget, so
+a ceiling needs no clamping — the helper enforces it whatever the call says. If
+a byte knob is ever exposed as a tool argument, the clamp gets written then.
+
+Invalid configuration raises from `Tools.new`, which is the one place in this
+layer that may raise. The rule is about who is reading: a *tool call* answers a
+model, which can only act on JSON, so it never raises. Construction answers a
+host at startup, which can read an exception and will otherwise watch every
+subsequent call fail for the same reason.
+
 ### Tool schemas
 
 Each tool ships its JSON Schema as a constant — `Tools::FIND_SCHEMA`,
@@ -704,12 +736,9 @@ both, and the three text tools over `Reader`, `Writer` and `Replacer`.
 
 Next, in rough order:
 
-1. **Configurability.** The limits are the helpers' to configure but the tool
-   layer hardcodes what it passes down, so a host cannot raise the read budget
-   or lower the write ceiling. The helpers already take every limit as a
-   constructor argument, so closing this means threading one configuration
-   object through `Tools.new` rather than changing five files.
-2. **The session read log**, below.
+1. **The session read log**, below.
+2. **TOCTOU**, recorded twice above as acceptable for a trusted workspace. That
+   assessment was made when the shard was read-only, and writes change it.
 3. `ls` with metadata, and `tree` with a depth cap.
 
 The text tools shipped **stateless first**. The scope documents assume a

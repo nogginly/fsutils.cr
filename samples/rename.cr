@@ -69,9 +69,10 @@ search = FsUtils::Grep.new(
   types: types,
   include: includes,
   exclude: excludes,
-  include_hidden: include_hidden,
-  max_matches: 1_000,
-)
+) do |settings|
+  settings.include_hidden = include_hidden
+  settings.max_matches = 1_000
+end
 
 report = begin
   search.run { |match| candidates << match.path }
@@ -97,9 +98,8 @@ candidates.each do |path|
       needle,
       replacement,
       replace_all: true,
-      context_lines: context,
       dry_run: !write,
-    ).replace
+    ) { |settings| settings.context_lines = context }.replace
   rescue ex : FsUtils::Error
     refused << {path, ex.message.to_s}
     next

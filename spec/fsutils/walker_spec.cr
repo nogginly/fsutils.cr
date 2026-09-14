@@ -96,10 +96,10 @@ describe FsUtils::Walker do
 
     it "rejects non-positive budgets" do
       expect_raises(ArgumentError, /max_matches/) do
-        FsUtils::Walker.new(Collector.new, ["."], max_matches: 0)
+        FsUtils::Walker.new(Collector.new, ["."]) { |settings| settings.max_matches = 0 }
       end
       expect_raises(ArgumentError, /max_depth/) do
-        FsUtils::Walker.new(Collector.new, ["."], max_depth: -1)
+        FsUtils::Walker.new(Collector.new, ["."]) { |settings| settings.max_depth = -1 }
       end
     end
 
@@ -187,7 +187,7 @@ describe FsUtils::Walker do
     it "includes them on request" do
       with_tree do |root|
         policy = Collector.new
-        FsUtils::Walker.new(policy, root, include_hidden: true).run
+        FsUtils::Walker.new(policy, root) { |settings| settings.include_hidden = true }.run
 
         policy.names.should contain(".dotfile")
         policy.names.should contain("secret.cr")
@@ -210,7 +210,7 @@ describe FsUtils::Walker do
     it "walks everything when the deny-list is empty" do
       with_tree do |root|
         policy = Collector.new
-        FsUtils::Walker.new(policy, root, skip_dirs: [] of String).run
+        FsUtils::Walker.new(policy, root) { |settings| settings.skip_dirs = [] of String }.run
 
         policy.names.should contain("index.js")
       end
@@ -221,7 +221,7 @@ describe FsUtils::Walker do
     it "stops descending at max_depth" do
       with_tree do |root|
         policy = Collector.new
-        FsUtils::Walker.new(policy, root, max_depth: 2).run
+        FsUtils::Walker.new(policy, root) { |settings| settings.max_depth = 2 }.run
 
         policy.names.should contain("a.cr")     # depth 2
         policy.names.should contain("deep")     # depth 2, offered but not entered
@@ -232,7 +232,7 @@ describe FsUtils::Walker do
     it "offers only the roots' children at max_depth 1" do
       with_tree do |root|
         policy = Collector.new
-        FsUtils::Walker.new(policy, root, max_depth: 1).run
+        FsUtils::Walker.new(policy, root) { |settings| settings.max_depth = 1 }.run
 
         policy.entries.map(&.depth).uniq.should eq([1])
       end
@@ -243,7 +243,7 @@ describe FsUtils::Walker do
     it "stops at max_matches and says so" do
       with_tree do |root|
         policy = Collector.new
-        report = FsUtils::Walker.new(policy, root, max_matches: 3).run
+        report = FsUtils::Walker.new(policy, root) { |settings| settings.max_matches = 3 }.run
 
         report.matches.should eq(3)
         policy.entries.size.should eq(3)
@@ -255,7 +255,7 @@ describe FsUtils::Walker do
     it "caps a single directory without abandoning its subtree" do
       with_tree do |root|
         policy = Collector.new
-        report = FsUtils::Walker.new(policy, root, max_matches_per_dir: 1).run
+        report = FsUtils::Walker.new(policy, root) { |settings| settings.max_matches_per_dir = 1 }.run
 
         report.dirs_capped.should be > 0
         report.truncated?.should be_true
@@ -267,7 +267,7 @@ describe FsUtils::Walker do
     it "clamps a policy that claims more than its limit" do
       with_tree do |root|
         policy = Greedy.new
-        report = FsUtils::Walker.new(policy, root, max_matches: 2).run
+        report = FsUtils::Walker.new(policy, root) { |settings| settings.max_matches = 2 }.run
 
         # One offer of 2, taken in full, and the walk is over.
         policy.granted.should eq([2])
@@ -279,7 +279,7 @@ describe FsUtils::Walker do
     it "narrows the limit it offers as the budget runs down" do
       with_tree do |root|
         policy = Modest.new
-        report = FsUtils::Walker.new(policy, root, max_matches: 2).run
+        report = FsUtils::Walker.new(policy, root) { |settings| settings.max_matches = 2 }.run
 
         policy.granted.should eq([2, 1])
         report.matches.should eq(2)
@@ -290,7 +290,7 @@ describe FsUtils::Walker do
     it "stops when max_entries_scanned is exceeded" do
       with_tree do |root|
         policy = Collector.new
-        report = FsUtils::Walker.new(policy, root, max_entries_scanned: 2).run
+        report = FsUtils::Walker.new(policy, root) { |settings| settings.max_entries_scanned = 2 }.run
 
         report.stop_reason.max_entries_scanned?.should be_true
       end
@@ -299,7 +299,7 @@ describe FsUtils::Walker do
     it "stops on timeout" do
       with_tree do |root|
         policy = Collector.new
-        report = FsUtils::Walker.new(policy, root, timeout: 0.seconds).run
+        report = FsUtils::Walker.new(policy, root) { |settings| settings.timeout = 0.seconds }.run
 
         report.stop_reason.timeout?.should be_true
         report.truncated?.should be_true
@@ -380,7 +380,7 @@ describe FsUtils::Walker do
         ::File.symlink(root, ::File.join(root, "src", "loop"))
 
         policy = Collector.new
-        report = FsUtils::Walker.new(policy, root, follow_symlinks: true, max_depth: 8).run
+        report = FsUtils::Walker.new(policy, root) { |settings| settings.follow_symlinks = true; settings.max_depth = 8 }.run
 
         report.pruned.should be > 0
         report.stop_reason.completed?.should be_true

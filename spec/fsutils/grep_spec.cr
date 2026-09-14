@@ -105,7 +105,7 @@ describe FsUtils::Grep do
 
   it "rejects nonsense arguments" do
     expect_raises(ArgumentError) { FsUtils::Grep.new("x", [] of String) }
-    expect_raises(ArgumentError) { FsUtils::Grep.new("x", ".", max_matches: 0) }
+    expect_raises(ArgumentError) { FsUtils::Grep.new("x", ".") { |settings| settings.max_matches = 0 } }
   end
 
   it "collects errors instead of raising when the path does not exist" do
@@ -119,8 +119,7 @@ describe FsUtils::Grep do
     it "stops at max_matches" do
       with_tree do |root|
         write(root, "a.txt", "hit\n" * 50)
-        matches, report = collect(FsUtils::Grep.new("hit", root,
-          max_matches: 5, max_matches_per_file: 100))
+        matches, report = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_matches = 5; settings.max_matches_per_file = 100 })
         matches.size.should eq 5
         report.stop_reason.should eq FsUtils::Grep::StopReason::MaxMatches
         report.truncated?.should be_true
@@ -132,8 +131,7 @@ describe FsUtils::Grep do
         write(root, "loud.txt", "hit\n" * 500)
         write(root, "quiet.txt", "hit\n")
 
-        matches, report = collect(FsUtils::Grep.new("hit", root,
-          max_matches_per_file: 3))
+        matches, report = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_matches_per_file = 3 })
 
         matches.count { |m| m.relative_path == "loud.txt" }.should eq 3
         matches.count { |m| m.relative_path == "quiet.txt" }.should eq 1
@@ -146,8 +144,7 @@ describe FsUtils::Grep do
       with_tree do |root|
         write(root, "a.txt", "hit\n" * 50)
 
-        _, report = collect(FsUtils::Grep.new("hit", root,
-          max_matches: 2, max_matches_per_file: 20))
+        _, report = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_matches = 2; settings.max_matches_per_file = 20 })
 
         # Two matches because the global budget ran out, not because the file
         # forfeited a remainder — so this is the walker's stop to report.
@@ -162,8 +159,7 @@ describe FsUtils::Grep do
         20.times { |i| write(root, "loud/f#{i}.txt", "hit\n" * 10) }
         write(root, "quiet/f.txt", "hit\n")
 
-        matches, report = collect(FsUtils::Grep.new("hit", root,
-          max_matches_per_file: 5, max_matches_per_dir: 10))
+        matches, report = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_matches_per_file = 5; settings.max_matches_per_dir = 10 })
 
         matches.count { |m| m.relative_path.starts_with?("loud/") }.should eq 10
         matches.count { |m| m.relative_path.starts_with?("quiet/") }.should eq 1
@@ -181,8 +177,7 @@ describe FsUtils::Grep do
         end
         write(root, "zzz/shallow.txt", "hit\n")
 
-        matches, _ = collect(FsUtils::Grep.new("hit", root,
-          max_matches: 30, max_matches_per_file: 5))
+        matches, _ = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_matches = 30; settings.max_matches_per_file = 5 })
 
         matches.any? { |m| m.relative_path.starts_with?("zzz/") }.should be_true
       end
@@ -210,8 +205,7 @@ describe FsUtils::Grep do
       with_tree do |root|
         5.times { |i| write(root, "f#{i}.txt", "hit\n" * 50) }
 
-        matches, report = collect(FsUtils::Grep.new("hit", root,
-          mode: FsUtils::Grep::Mode::Paths, max_matches: 3, max_matches_per_file: 20))
+        matches, report = collect(FsUtils::Grep.new("hit", root, mode: FsUtils::Grep::Mode::Paths) { |settings| settings.max_matches = 3; settings.max_matches_per_file = 20 })
 
         matches.size.should eq 3
         matches.map(&.relative_path).uniq.size.should eq 3
@@ -267,7 +261,7 @@ describe FsUtils::Grep do
     it "skips oversized files" do
       with_tree do |root|
         write(root, "big.txt", "hit\n" * 1000)
-        _, report = collect(FsUtils::Grep.new("hit", root, max_file_bytes: 10_i64))
+        _, report = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_file_bytes = 10_i64 })
         report.matches.should eq 0
         report.files_skipped.should eq 1
       end
@@ -276,7 +270,7 @@ describe FsUtils::Grep do
     it "truncates very long lines" do
       with_tree do |root|
         write(root, "min.js", "x" * 50 + "hit" + "y" * 5000)
-        matches, _ = collect(FsUtils::Grep.new("hit", root, max_line_length: 80))
+        matches, _ = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_line_length = 80 })
         matches.first.line.size.should eq 80
         matches.first.truncated_line?.should be_true
       end
@@ -297,7 +291,7 @@ describe FsUtils::Grep do
       with_tree do |root|
         write(root, ".hidden.txt", "hit\n")
 
-        matches, _ = collect(FsUtils::Grep.new("hit", root, include_hidden: true))
+        matches, _ = collect(FsUtils::Grep.new("hit", root) { |settings| settings.include_hidden = true })
         matches.map(&.relative_path).should eq [".hidden.txt"]
       end
     end
@@ -321,7 +315,7 @@ describe FsUtils::Grep do
         write(root, "top.txt", "hit\n")
         write(root, "one/two/deep.txt", "hit\n")
 
-        matches, _ = collect(FsUtils::Grep.new("hit", root, max_depth: 1))
+        matches, _ = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_depth = 1 })
         matches.map(&.relative_path).should eq ["top.txt"]
       end
     end
@@ -330,7 +324,7 @@ describe FsUtils::Grep do
       with_tree do |root|
         20.times { |i| write(root, "f#{i}.txt", "hit\n") }
 
-        _, report = collect(FsUtils::Grep.new("hit", root, max_entries_scanned: 3))
+        _, report = collect(FsUtils::Grep.new("hit", root) { |settings| settings.max_entries_scanned = 3 })
         report.stop_reason.should eq FsUtils::Grep::StopReason::MaxEntriesScanned
         report.truncated?.should be_true
       end
@@ -353,8 +347,7 @@ describe FsUtils::Grep do
         write(root, "real/a.txt", "hit\n")
         File.symlink(root, File.join(root, "real", "loop"))
 
-        matches, report = collect(FsUtils::Grep.new("hit", root,
-          follow_symlinks: true, timeout: 5.seconds))
+        matches, report = collect(FsUtils::Grep.new("hit", root) { |settings| settings.follow_symlinks = true; settings.timeout = 5.seconds })
 
         matches.size.should eq 1
         report.stop_reason.should eq FsUtils::Grep::StopReason::Completed

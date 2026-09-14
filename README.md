@@ -90,6 +90,17 @@ symlinks are not followed; hidden entries are ignored. All of it is adjustable,
 and none of it raises — unreadable directories become `report.errors`, not an
 exception.
 
+Every helper takes its bounds as a `Settings` object, separate from the
+arguments that say what to look for. Pass one, or amend a fresh one in a block:
+
+```crystal
+FsUtils::Grep.new("TODO", "src", types: ["cr"]) do |settings|
+  settings.max_matches = 50
+  settings.max_matches_per_file = 1
+  settings.timeout = 2.seconds
+end
+```
+
 Reads are bounded too, in bytes as well as lines: a long file returns its first
 page and says so, rather than handing back something too large to use. Writes
 and replacements are bounded differently — they are atomic, and they refuse
@@ -115,6 +126,31 @@ tools.text_replace(path: "src/find.cr", old_string: "a", new_string: "b").to_jso
 
 Five tools, each with its own result shape but the same four common fields, so
 a model learns the envelope once and the specifics per tool.
+
+A host decides what those tools are allowed to do by handing `Tools.new` a
+`Config`. It is YAML- and JSON-serialisable, so it can live as a section of a
+larger agent configuration, and every field is optional:
+
+```yaml
+tool_config:
+  max_output_bytes: 32000
+  grep:
+    max_matches: 100
+    max_depth: 10
+  write:
+    max_content_bytes: 1048576
+```
+
+```crystal
+config = FsUtils::Tools::Config.from_yaml(File.read("agent.yml"))
+tools = FsUtils::Tools.new("/srv/project", config)
+```
+
+The configured values are defaults for the arguments a model may pass —
+`max_matches` and friends — and hard limits for everything it may not, such as
+the read byte budget and the write ceiling. A limit that cannot be honoured
+raises from `Tools.new`, not from a tool call: a host can read a startup
+failure, where a model can only read JSON.
 
 Every response has the same shape, so a model learns it once:
 

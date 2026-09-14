@@ -127,8 +127,7 @@ describe FsUtils::Replacer do
     it "caps the number of hunks and counts what it withheld" do
       body = (1..200).map { |i| i % 10 == 0 ? "target" : "line #{i}" }.join("\n") + "\n"
       with_content(body) do |path|
-        result = FsUtils::Replacer.new(path, "target", "hit",
-          replace_all: true, max_hunks: 5).replace
+        result = FsUtils::Replacer.new(path, "target", "hit", replace_all: true) { |settings| settings.max_hunks = 5 }.replace
 
         result.replacements.should eq 20
         result.hunks.size.should eq 5

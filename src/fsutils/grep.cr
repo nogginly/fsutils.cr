@@ -255,9 +255,45 @@ module FsUtils
     @roots : Array(String)
     @bases : Array(String)
 
+    # The bounds this search honours: the traversal's, plus the three that are
+    # `Grep`'s own. Its depth and scan ceilings are lower than a plain walk's,
+    # because opening files costs more than listing them.
+    class Settings < Walk::Settings
+      property max_matches_per_file = 20
+      property max_file_bytes : Int64 = 5_000_000_i64
+      property max_line_length = 1_000
+
+      def initialize
+        super
+        self.max_depth = 25
+        self.max_entries_scanned = 20_000
+      end
+
+      def validate! : Nil
+        super
+        raise ArgumentError.new("max_matches_per_file must be positive") if max_matches_per_file < 1
+      end
+    end
+
     # Convenience: a single root as a String.
     def self.new(pattern : String, root : String, **args)
       new(pattern, [root], **args)
+    end
+
+    # Block form: the settings are yielded for amendment before the search is
+    # built.
+    #
+    # ```
+    # FsUtils::Grep.new("TODO", "src") { |s| s.max_matches_per_file = 1 }
+    # ```
+    def self.new(pattern : String, roots : Array(String), **args, &)
+      settings = Settings.new
+      yield settings
+      new(pattern, roots, **args, settings: settings)
+    end
+
+    def self.new(pattern : String, root : String, **args, &)
+      new(pattern, [root], **args) { |settings| yield settings }
     end
 
     # `pattern` is a regular expression unless `fixed_string` is set.
@@ -271,21 +307,10 @@ module FsUtils
       types : Array(String) = [] of String,
       @include : Array(String) = [] of String,
       @exclude : Array(String) = [] of String,
-      @max_matches : Int32 = 1_000,
-      @max_matches_per_file : Int32 = 20,
-      @max_matches_per_dir : Int32 = 100,
-      @max_depth : Int32 = 25,
-      @max_entries_scanned : Int32 = 20_000,
-      max_file_bytes : Int64 = 5_000_000_i64,
-      @max_line_length : Int32 = 1_000,
-      @follow_symlinks : Bool = false,
-      @include_hidden : Bool = false,
-      @skip_dirs : Array(String) = DEFAULT_SKIP_DIRS,
-      @timeout : Time::Span = 10.seconds,
+      @settings : Settings = Settings.new,
     )
       raise ArgumentError.new("at least one root is required") if roots.empty?
-      raise ArgumentError.new("max_matches must be positive") if @max_matches < 1
-      raise ArgumentError.new("max_matches_per_file must be positive") if @max_matches_per_file < 1
+      @settings.validate!
 
       unless types.empty?
         @include = @include + types.flat_map do |name|
@@ -294,7 +319,7 @@ module FsUtils
         end
       end
       # Positional: `include:` is not a usable argument label either.
-      @selector = Selector.new(@include, @exclude, max_file_bytes)
+      @selector = Selector.new(@include, @exclude, @settings.max_file_bytes)
 
       # Roots are expanded so relative paths can be derived by prefix. Longest
       # first, so a nested root wins over the parent that contains it.
@@ -319,24 +344,13 @@ module FsUtils
         selector: @selector,
         bases: @bases,
         mode: @mode,
-        max_matches_per_file: @max_matches_per_file,
-        max_line_length: @max_line_length,
-        timeout: @timeout,
+        max_matches_per_file: @settings.max_matches_per_file,
+        max_line_length: @settings.max_line_length,
+        timeout: @settings.timeout,
         block: block,
       )
 
-      walker = Walker.new(
-        scanner,
-        @roots,
-        max_matches: @max_matches,
-        max_matches_per_dir: @max_matches_per_dir,
-        max_entries_scanned: @max_entries_scanned,
-        max_depth: @max_depth,
-        timeout: @timeout,
-        follow_symlinks: @follow_symlinks,
-        include_hidden: @include_hidden,
-        skip_dirs: @skip_dirs,
-      )
+      walker = Walker.new(scanner, @roots, @settings)
 
       Report.new(
         walk: walker.run,

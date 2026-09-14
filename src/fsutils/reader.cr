@@ -58,15 +58,48 @@ module FsUtils
       end
     end
 
+    # The bounds a read honours, as distinct from the window the caller is
+    # asking for: `offset`, `limit` and `line_numbers` say what to return,
+    # these say how much of it is too much.
+    class Settings
+      property max_bytes = DEFAULT_MAX_BYTES
+      property max_line_length = DEFAULT_MAX_LINE_LENGTH
+      property max_file_bytes : Int64 = MAX_FILE_BYTES.to_i64
+
+      def initialize
+      end
+
+      def validate! : Nil
+        raise ArgumentError.new("max_bytes must be positive") if max_bytes < 1
+        raise ArgumentError.new("max_line_length must be positive") if max_line_length < 1
+        raise ArgumentError.new("max_file_bytes must be positive") if max_file_bytes < 1
+      end
+
+      def copy : self
+        dup
+      end
+    end
+
+    # Block form: the settings are yielded for amendment before the read is
+    # built.
+    #
+    # ```
+    # FsUtils::Reader.new("src/find.cr") { |s| s.max_bytes = 512_000 }
+    # ```
+    def self.new(path : String, **args, &)
+      settings = Settings.new
+      yield settings
+      new(path, **args, settings: settings)
+    end
+
     def initialize(
       @path : String,
       @offset : Int32 = 1,
       @limit : Int32 = DEFAULT_LIMIT,
       @line_numbers : Bool = true,
-      @max_bytes : Int32 = DEFAULT_MAX_BYTES,
-      @max_line_length : Int32 = DEFAULT_MAX_LINE_LENGTH,
-      @max_file_bytes : Int64 = MAX_FILE_BYTES.to_i64,
+      @settings : Settings = Settings.new,
     )
+      @settings.validate!
       raise ArgumentError.new("offset must be 1 or greater") if @offset < 1
       raise ArgumentError.new("limit must be 1 or greater") if @limit < 1
       raise ArgumentError.new("path must not contain null bytes") if @path.includes?('\0')
@@ -104,9 +137,9 @@ its type, or search it with grep.")
           "List its contents instead, or name a file inside it.")
       end
 
-      if info.size > @max_file_bytes
+      if info.size > @settings.max_file_bytes
         raise FsUtils::TooLargeError.new(
-          "#{@path} is #{info.size} bytes, over the #{@max_file_bytes} byte ceiling",
+          "#{@path} is #{info.size} bytes, over the #{@settings.max_file_bytes} byte ceiling",
           "Search it with grep rather than reading it whole.")
       end
     end
@@ -141,11 +174,11 @@ its type, or search it with grep.")
 as binary.")
         end
 
-        text, omitted = Text.clamp(line, @max_line_length)
+        text, omitted = Text.clamp(line, @settings.max_line_length)
         long_lines += 1 if omitted > 0
         rendered = render(total, text, omitted)
 
-        if used + rendered.bytesize > @max_bytes && first_returned
+        if used + rendered.bytesize > @settings.max_bytes && first_returned
           # At least one line is always returned, so a single enormous line
           # yields something rather than an empty success.
           budget_hit = true

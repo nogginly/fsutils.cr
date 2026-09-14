@@ -11,6 +11,36 @@ module FsUtils
       target build dist __pycache__ .cache .terraform .next
     ]
 
+    # The bounds a traversal honours, as distinct from what the caller is
+    # looking for. One instance configures one helper; `copy` gives a call its
+    # own to amend. `skip_dirs` is shared by reference, so replace the array
+    # rather than mutating it in place.
+    class Settings
+      property max_matches = 1_000
+      property max_matches_per_dir = 100
+      property max_entries_scanned = 100_000
+      property max_depth = 32
+      property timeout : Time::Span = 10.seconds
+      property? follow_symlinks = false
+      property? include_hidden = false
+      property skip_dirs : Array(String) = DEFAULT_SKIP_DIRS
+
+      def initialize
+      end
+
+      # Raises `ArgumentError` if any bound cannot be honoured.
+      def validate! : Nil
+        raise ArgumentError.new("max_matches must be positive") if max_matches < 1
+        raise ArgumentError.new("max_matches_per_dir must be positive") if max_matches_per_dir < 1
+        raise ArgumentError.new("max_depth must not be negative") if max_depth < 0
+      end
+
+      # A separate instance carrying the same bounds.
+      def copy : self
+        dup
+      end
+    end
+
     enum EntryType
       File
       Directory
@@ -128,26 +158,29 @@ module FsUtils
       new(policy, [root], **args)
     end
 
+    # Block form: the settings are yielded for amendment before the walk is
+    # built.
+    def self.new(policy : P, roots : Array(String), &)
+      settings = Walk::Settings.new
+      yield settings
+      new(policy, roots, settings)
+    end
+
+    def self.new(policy : P, root : String, &)
+      new(policy, [root]) { |settings| yield settings }
+    end
+
     def initialize(
       @policy : P,
       @roots : Array(String),
-      @max_matches : Int32 = 1_000,
-      @max_matches_per_dir : Int32 = 100,
-      @max_entries_scanned : Int32 = 100_000,
-      @max_depth : Int32 = 32,
-      @timeout : Time::Span = 10.seconds,
-      @follow_symlinks : Bool = false,
-      @include_hidden : Bool = false,
-      @skip_dirs : Array(String) = Walk::DEFAULT_SKIP_DIRS,
+      @settings : Walk::Settings = Walk::Settings.new,
     )
       raise ArgumentError.new("at least one root is required") if @roots.empty?
-      raise ArgumentError.new("max_matches must be positive") if @max_matches < 1
-      raise ArgumentError.new("max_matches_per_dir must be positive") if @max_matches_per_dir < 1
-      raise ArgumentError.new("max_depth must not be negative") if @max_depth < 0
+      @settings.validate!
     end
 
     def run : Walk::Report
-      state = State.new(@timeout)
+      state = State.new(@settings.timeout)
       queue = Deque({String, Int32}).new
 
       # A root that is a plain file is offered directly. Callers point these
@@ -235,7 +268,7 @@ module FsUtils
 
     private def scan_children(state : State, dir : String, depth : Int32,
                               children : Array(String), queue) : Nil
-      budget = @max_matches_per_dir
+      budget = @settings.max_matches_per_dir
       capped = false
 
       children.each do |name|
@@ -245,7 +278,7 @@ module FsUtils
           return
         end
 
-        next if !@include_hidden && name.starts_with?('.')
+        next if !@settings.include_hidden? && name.starts_with?('.')
 
         full = ::File.join(dir, name)
         pair = stat(full, state)
@@ -259,7 +292,7 @@ module FsUtils
         unless capped
           spent = offer(state, full, name, type, info, child_depth, budget)
           budget -= spent
-          if state.matches >= @max_matches
+          if state.matches >= @settings.max_matches
             state.stop = Walk::StopReason::MaxMatches
           elsif budget <= 0
             # The directory is done contributing matches, but its children are
@@ -280,7 +313,7 @@ module FsUtils
     private def offer(state : State, full : String, name : String,
                       type : Walk::EntryType, info : ::File::Info,
                       depth : Int32, budget : Int32) : Int32
-      limit = {budget, @max_matches - state.matches}.min
+      limit = {budget, @settings.max_matches - state.matches}.min
       return 0 if limit < 1
 
       entry = Walk::Entry.new(
@@ -308,21 +341,21 @@ module FsUtils
 
       state.scanned += 1
       type = entry_type(link_info, info)
-      offer(state, path, ::File.basename(path), type, info, 0, @max_matches_per_dir)
-      state.stop = Walk::StopReason::MaxMatches if state.matches >= @max_matches
+      offer(state, path, ::File.basename(path), type, info, 0, @settings.max_matches_per_dir)
+      state.stop = Walk::StopReason::MaxMatches if state.matches >= @settings.max_matches
     end
 
     private def over_budget(state : State) : Walk::StopReason?
-      return Walk::StopReason::MaxEntriesScanned if state.scanned > @max_entries_scanned
+      return Walk::StopReason::MaxEntriesScanned if state.scanned > @settings.max_entries_scanned
       return Walk::StopReason::Timeout if Time.instant > state.deadline
       nil
     end
 
     private def descend?(name : String, directory : Bool, symlink : Bool, depth : Int32) : Bool
       return false unless directory
-      return false if symlink && !@follow_symlinks
-      return false if depth >= @max_depth
-      return false if @skip_dirs.includes?(name)
+      return false if symlink && !@settings.follow_symlinks?
+      return false if depth >= @settings.max_depth
+      return false if @settings.skip_dirs.includes?(name)
       true
     end
 
