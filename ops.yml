@@ -31,5 +31,5 @@ actions:
     command: crystal spec
     description: Run all test specs
   test:
-    command: ops test_specs && ops lint
+    command: ops test_specs && ops build && ops lint
     description: Run all tests and linter

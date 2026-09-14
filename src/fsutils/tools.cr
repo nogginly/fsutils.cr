@@ -7,6 +7,7 @@ require "./tools/read"
 require "./tools/write"
 require "./tools/replace"
 require "./tools/schemas"
+require "./tools/call"
 
 module FsUtils
   # The agent-facing layer.

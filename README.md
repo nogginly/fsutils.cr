@@ -183,6 +183,22 @@ Four things to know:
   answer might be a sample: a budget spent, a noisy file or directory capped, or
   results dropped to fit the output size limit.
 
+A host dispatching what a model asked for calls by name:
+
+```crystal
+json = tools.call("read_text_file", JSON.parse(%({"path": "src/main.cr"})))
+```
+
+It returns serialised JSON, since that is what the model receives anyway. The
+five typed methods are unchanged and remain the API for Crystal callers.
+
+An unknown tool name raises `ArgumentError`: the host chose what to register,
+so the host is the only one who can act on it. Wrap the call, because a model
+can invent a name. Everything a model *can* fix — arguments that are not an
+object, a parameter the tool does not accept, a value of the wrong type — comes
+back as a normal error response in the usual envelope. Nothing is coerced: a
+`max_matches` of `"200"` is refused rather than read as 200.
+
 `Tools::DEFINITIONS` publishes each tool as its three parts — `name`,
 `description` and `schema` — so a host can register them without hand-writing a
 description that drifts from the code:

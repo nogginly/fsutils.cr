@@ -719,6 +719,35 @@ model, which can only act on JSON, so it never raises. Construction answers a
 host at startup, which can read an exception and will otherwise watch every
 subsequent call fail for the same reason.
 
+### Calling by name
+
+`Tools#call(name, arguments)` exists because the schemas describe half a
+contract the code did not expose. A host that registers `find_files` has to map
+that name back to `find` and unpack ten arguments out of a JSON object, and
+every host was going to write the same `case` statement and the same coercions.
+
+It returns `String` rather than a response type. There are five result shapes
+and no useful supertype, and inventing a union or a common struct to satisfy a
+signature whose output is immediately serialised for a model would be work in
+service of the type system rather than the caller.
+
+It raises `ArgumentError` for a name that is not a tool -- the second place in
+this layer that raises, and for the same reason as the first. The question is
+always who can act on the failure. A bad argument is the model's to fix, so it
+comes back as an error response. A name that was never registered is the
+*host's*: it chose the registration, and answering the model with JSON would
+hide a wiring bug behind a plausible-looking refusal. Worth noting that the
+name does arrive from a model, which can invent one, so hosts need a `rescue`
+rather than an assumption.
+
+Arguments are checked, never coerced. A `max_matches` of `"200"` is refused,
+and so is any parameter the schema does not declare. Both are deliberate: a
+silently-ignored `max_bytes: 100` costs a model several turns to notice, and a
+quietly-coerced string teaches it that the schema is advisory. The accepted
+keys are read from the published schemas at startup rather than kept as a
+second list, so the set a call accepts and the set the model was told about
+cannot drift.
+
 ### Tool definitions
 
 Each tool ships as a `Definition` — `name`, `description` and `schema` — and all
