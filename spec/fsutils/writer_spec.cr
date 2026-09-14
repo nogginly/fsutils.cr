@@ -121,7 +121,7 @@ describe FsUtils::Writer do
       with_dir do |dir|
         path = File.join(dir, "a.txt")
         expect_raises(FsUtils::Error, /ceiling/) do
-          FsUtils::Writer.new(path, "x" * 100, max_content_bytes: 10_i64)
+          FsUtils::Writer.new(path, "x" * 100) { |settings| settings.max_content_bytes = 10_i64 }
         end
         File.exists?(path).should be_false
       end

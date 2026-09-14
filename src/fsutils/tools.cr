@@ -131,6 +131,12 @@ module FsUtils
 
       entry_type = parse_type(type)
 
+      settings = Find::Settings.new
+      settings.max_depth = max_depth
+      settings.max_matches = max_matches
+      settings.include_hidden = include_hidden
+      settings.timeout = timeout_seconds.seconds
+
       results = [] of FindResult
       report = Find.new(
         roots,
@@ -139,10 +145,7 @@ module FsUtils
         exclude: exclude,
         type: entry_type,
         min_depth: min_depth,
-        max_depth: max_depth,
-        max_matches: max_matches,
-        include_hidden: include_hidden,
-        timeout: timeout_seconds.seconds,
+        settings: settings,
       ).run do |match|
         results << FindResult.new(
           path: @sandbox.relative(match.path),
@@ -199,6 +202,13 @@ module FsUtils
 
       grep_mode = parse_mode(mode)
 
+      settings = Grep::Settings.new
+      settings.max_matches = max_matches
+      settings.max_matches_per_file = max_matches_per_file
+      settings.max_depth = max_depth
+      settings.include_hidden = include_hidden
+      settings.timeout = timeout_seconds.seconds
+
       results = [] of GrepResult
       report = Grep.new(
         pattern,
@@ -209,11 +219,7 @@ module FsUtils
         types: types,
         include: include_globs,
         exclude: exclude_globs,
-        max_matches: max_matches,
-        max_matches_per_file: max_matches_per_file,
-        max_depth: max_depth,
-        include_hidden: include_hidden,
-        timeout: timeout_seconds.seconds,
+        settings: settings,
       ).run do |match|
         results << GrepResult.new(
           path: @sandbox.relative(match.path),

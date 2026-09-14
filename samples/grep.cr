@@ -88,14 +88,15 @@ grep = begin
     types: types,
     include: includes,
     exclude: excludes,
-    max_matches: max_matches,
-    max_matches_per_file: per_file,
-    max_matches_per_dir: per_dir,
-    max_depth: max_depth,
-    follow_symlinks: follow,
-    include_hidden: include_hidden,
-    timeout: timeout.seconds,
-  )
+  ) do |settings|
+    settings.max_matches = max_matches
+    settings.max_matches_per_file = per_file
+    settings.max_matches_per_dir = per_dir
+    settings.max_depth = max_depth
+    settings.follow_symlinks = follow
+    settings.include_hidden = include_hidden
+    settings.timeout = timeout.seconds
+  end
 rescue ex : FsUtils::Error | ArgumentError
   abort "fsu-grep: #{ex.message}"
 end

@@ -97,7 +97,7 @@ describe FsUtils::Reader do
   describe "budgets" do
     it "stops at the byte budget and says so" do
       with_file((1..500).map { |i| "#{i} #{"x" * 100}" }.join("\n") + "\n") do |path|
-        result = FsUtils::Reader.new(path, max_bytes: 1_000).read
+        result = FsUtils::Reader.new(path) { |settings| settings.max_bytes = 1_000 }.read
 
         result.truncated?.should be_true
         result.truncation_reason.should eq FsUtils::Reader::TruncationReason::ByteBudget
@@ -108,7 +108,7 @@ describe FsUtils::Reader do
 
     it "always returns at least one line, however long" do
       with_file("#{"x" * 50_000}\nsecond\n") do |path|
-        result = FsUtils::Reader.new(path, max_bytes: 100).read
+        result = FsUtils::Reader.new(path) { |settings| settings.max_bytes = 100 }.read
 
         result.first_line.should eq 1
         result.content.empty?.should be_false
@@ -117,7 +117,7 @@ describe FsUtils::Reader do
 
     it "cuts a long line and marks it" do
       with_file("#{"x" * 5_000}\nshort\n") do |path|
-        result = FsUtils::Reader.new(path, max_line_length: 100).read
+        result = FsUtils::Reader.new(path) { |settings| settings.max_line_length = 100 }.read
 
         result.long_lines.should eq 1
         result.content.should contain "chars omitted"
@@ -126,7 +126,7 @@ describe FsUtils::Reader do
 
     it "does not call a merely long-lined read truncated" do
       with_file("#{"x" * 5_000}\n") do |path|
-        result = FsUtils::Reader.new(path, max_line_length: 100).read
+        result = FsUtils::Reader.new(path) { |settings| settings.max_line_length = 100 }.read
 
         result.truncated?.should be_false
         result.truncation_reason.should eq FsUtils::Reader::TruncationReason::LongLines
@@ -159,7 +159,7 @@ describe FsUtils::Reader do
     it "refuses a file over the ceiling" do
       with_file(numbered_lines) do |path|
         expect_raises(FsUtils::Error, /ceiling/) do
-          FsUtils::Reader.new(path, max_file_bytes: 5_i64).read
+          FsUtils::Reader.new(path) { |settings| settings.max_file_bytes = 5_i64 }.read
         end
       end
     end

@@ -56,8 +56,7 @@ result = begin
     offset: requested_offset.nil? ? 1 : requested_offset,
     limit: requested_limit.nil? ? FsUtils::Reader::DEFAULT_LIMIT : requested_limit,
     line_numbers: line_numbers,
-    max_bytes: max_bytes,
-  ).read
+  ) { |settings| settings.max_bytes = max_bytes }.read
 rescue ex : FsUtils::Error
   advice = ex.suggestion
   abort advice.nil? ? "fsu-cat: #{ex.message}" : "fsu-cat: #{ex.message}\n  #{advice}"

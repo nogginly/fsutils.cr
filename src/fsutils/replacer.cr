@@ -50,14 +50,45 @@ module FsUtils
       stripped_prefixes : Bool,
       written : Bool
 
+    # The bounds an edit honours. `replace_all`, `dry_run` and
+    # `strip_numbered_prefixes` are not here: they say what to do, not how much
+    # of it is allowed.
+    class Settings
+      property context_lines = DEFAULT_CONTEXT_LINES
+      property max_hunks = DEFAULT_MAX_HUNKS
+      property max_file_bytes : Int64 = MAX_FILE_BYTES.to_i64
+
+      def initialize
+      end
+
+      def validate! : Nil
+        raise ArgumentError.new("context_lines must not be negative") if context_lines < 0
+        raise ArgumentError.new("max_hunks must be positive") if max_hunks < 1
+        raise ArgumentError.new("max_file_bytes must be positive") if max_file_bytes < 1
+      end
+
+      def copy : self
+        dup
+      end
+    end
+
+    # Block form: the settings are yielded for amendment before the edit is
+    # built.
+    #
+    # ```
+    # FsUtils::Replacer.new(path, old, new) { |s| s.context_lines = 0 }
+    # ```
+    def self.new(path : String, old_string : String, new_string : String, **args, &)
+      settings = Settings.new
+      yield settings
+      new(path, old_string, new_string, **args, settings: settings)
+    end
+
     def initialize(
       @path : String,
       @old_string : String,
       @new_string : String,
       @replace_all : Bool = false,
-      @context_lines : Int32 = DEFAULT_CONTEXT_LINES,
-      @max_hunks : Int32 = DEFAULT_MAX_HUNKS,
-      @max_file_bytes : Int64 = MAX_FILE_BYTES.to_i64,
       # Set by the tool layer from a read log. Never inferred from the shape of
       # `old_string`: a tab-separated data file read without numbering would
       # satisfy the same pattern and must not be stripped.
@@ -66,8 +97,10 @@ module FsUtils
       # reasonable question, and answering it from the caller's side would
       # mean duplicating the matching and hunk logic outside this class.
       @dry_run : Bool = false,
+      @settings : Settings = Settings.new,
     )
       raise ArgumentError.new("path must not contain null bytes") if @path.includes?('\0')
+      @settings.validate!
 
       if @old_string.empty?
         raise EmptyOldStringError.new(
@@ -107,9 +140,9 @@ module FsUtils
         raise IsDirectoryError.new("#{@path} is a directory, not a file")
       end
 
-      if info.size > @max_file_bytes
+      if info.size > @settings.max_file_bytes
         raise TooLargeError.new(
-          "#{@path} is #{info.size} bytes, over the #{@max_file_bytes} byte ceiling")
+          "#{@path} is #{info.size} bytes, over the #{@settings.max_file_bytes} byte ceiling")
       end
 
       content = ::File.read(@path)
@@ -235,12 +268,12 @@ replace_all: true to change every occurrence.")
       windows = merge(spans.map { |span| expand(span, before_lines.size) })
 
       hunks = cut(windows, spans, before_lines, after_lines, per_match_delta)
-      omitted = hunks.size > @max_hunks ? hunks.size - @max_hunks : 0
+      omitted = hunks.size > @settings.max_hunks ? hunks.size - @settings.max_hunks : 0
 
       Result.new(
         replacements: offsets.size,
         lines_delta: after_lines.size - before_lines.size,
-        hunks: omitted > 0 ? hunks[0, @max_hunks] : hunks,
+        hunks: omitted > 0 ? hunks[0, @settings.max_hunks] : hunks,
         hunks_omitted: omitted,
         stripped_prefixes: stripped,
         written: !@dry_run,
@@ -263,8 +296,8 @@ replace_all: true to change every occurrence.")
     end
 
     private def expand(span : {Int32, Int32}, total : Int32) : {Int32, Int32}
-      first = {span[0] - @context_lines, 1}.max
-      last = {span[1] + @context_lines, total}.min
+      first = {span[0] - @settings.context_lines, 1}.max
+      last = {span[1] + @settings.context_lines, total}.min
       {first, last}
     end
 

@@ -191,7 +191,7 @@ A `find(1)`-flavoured filter over `Walker`. Nothing is buffered: the block sees
 each hit as it is found, so memory is O(frontier), not O(results).
 
 ```crystal
-report = FsUtils::Find.new("src", name: ["*.cr"], max_matches: 200).run do |m|
+report = FsUtils::Find.new("src", name: ["*.cr"]) { |s| s.max_matches = 200 }.run do |m|
   puts "#{m.path} (#{m.size} bytes)"
 end
 report.truncated? # => did we stop early, and why
@@ -222,7 +222,7 @@ Content search over the same traversal. Matches are yielded as found — the cla
 never accumulates a result array, so memory stays flat regardless of tree size.
 
 ```crystal
-report = FsUtils::Grep.new("TODO", "src", max_matches: 200).run do |m|
+report = FsUtils::Grep.new("TODO", "src") { |s| s.max_matches = 200 }.run do |m|
   puts "#{m.relative_path}:#{m.line_number}:#{m.column}: #{m.line}"
 end
 ```

@@ -24,16 +24,42 @@ module FsUtils
       lines : Int32,
       parents_created : Array(String)
 
+    # The bounds a write honours. Only one so far, but a host configures the
+    # ceiling the same way it configures every other.
+    class Settings
+      property max_content_bytes : Int64 = MAX_CONTENT_BYTES.to_i64
+
+      def initialize
+      end
+
+      def validate! : Nil
+        raise ArgumentError.new("max_content_bytes must be positive") if max_content_bytes < 1
+      end
+
+      def copy : self
+        dup
+      end
+    end
+
+    # Block form: the settings are yielded for amendment before the write is
+    # built.
+    def self.new(path : String, content : String, &)
+      settings = Settings.new
+      yield settings
+      new(path, content, settings)
+    end
+
     def initialize(
       @path : String,
       @content : String,
-      @max_content_bytes : Int64 = MAX_CONTENT_BYTES.to_i64,
+      @settings : Settings = Settings.new,
     )
+      @settings.validate!
       raise ArgumentError.new("path must not contain null bytes") if @path.includes?('\0')
 
-      if @content.bytesize > @max_content_bytes
+      if @content.bytesize > @settings.max_content_bytes
         raise FsUtils::ContentTooLargeError.new(
-          "content is #{@content.bytesize} bytes, over the #{@max_content_bytes} byte ceiling",
+          "content is #{@content.bytesize} bytes, over the #{@settings.max_content_bytes} byte ceiling",
           "Write less in one call, or split the content across files.")
       end
     end

@@ -90,6 +90,17 @@ symlinks are not followed; hidden entries are ignored. All of it is adjustable,
 and none of it raises — unreadable directories become `report.errors`, not an
 exception.
 
+Every helper takes its bounds as a `Settings` object, separate from the
+arguments that say what to look for. Pass one, or amend a fresh one in a block:
+
+```crystal
+FsUtils::Grep.new("TODO", "src", types: ["cr"]) do |settings|
+  settings.max_matches = 50
+  settings.max_matches_per_file = 1
+  settings.timeout = 2.seconds
+end
+```
+
 Reads are bounded too, in bytes as well as lines: a long file returns its first
 page and says so, rather than handing back something too large to use. Writes
 and replacements are bounded differently — they are atomic, and they refuse
