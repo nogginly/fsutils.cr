@@ -1,6 +1,6 @@
 require "../../spec_helper"
 
-private def with_tools(**args, &)
+private def with_tools(config = FsUtils::Tools::Config.new, &)
   base = File.join(Dir.tempdir, "fsutils_tools_#{Random.rand(UInt32)}")
   root = File.join(base, "workspace")
   begin
@@ -12,7 +12,7 @@ private def with_tools(**args, &)
     File.write(File.join(root, "src", "b.cr"), "beta\n")
     File.write(File.join(base, "outside", "secret.txt"), "TODO hunter2\n")
 
-    yield FsUtils::Tools.new(root, **args), root, base
+    yield FsUtils::Tools.new(root, config), root, base
   ensure
     FileUtils.rm_rf(base)
   end
@@ -215,7 +215,10 @@ describe FsUtils::Tools do
     end
 
     it "drops results that do not fit the output budget" do
-      with_tools(max_output_bytes: 2_000) do |tools, root, _|
+      config = FsUtils::Tools::Config.new
+      config.max_output_bytes = 2_000
+
+      with_tools(config) do |tools, root, _|
         50.times { |i| File.write(File.join(root, "src", "f#{i}.cr"), "#{"x" * 200} hit\n") }
 
         json = parse(tools.grep(pattern: "hit", max_matches: 50))

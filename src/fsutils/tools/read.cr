@@ -93,8 +93,9 @@ module FsUtils
       Reader.new(
         resolved,
         offset: offset.nil? ? 1 : offset,
-        limit: limit.nil? ? Reader::DEFAULT_LIMIT : limit,
+        limit: limit.nil? ? @config.read.default_limit : limit,
         line_numbers: line_numbers,
+        settings: @config.read.to_settings,
       ).read
     end
 
@@ -130,7 +131,7 @@ module FsUtils
       last = first + span - 1
       ReadResponse.failure(
         ErrorCode::RANGE_TOO_LARGE,
-        "lines #{first}–#{last} exceed the #{Reader::DEFAULT_MAX_BYTES} byte budget; #{result.lines_elided} lines were left",
+        "lines #{first}–#{last} exceed the #{@config.read.max_bytes} byte budget; #{result.lines_elided} lines were left",
         range_suggestion(result))
     end
 

@@ -1,5 +1,6 @@
 require "json"
 
+require "./tools/config"
 require "./tools/envelope"
 require "./tools/sandbox"
 require "./tools/read"
@@ -102,10 +103,41 @@ module FsUtils
     end
 
     getter sandbox : Sandbox
-    getter max_output_bytes : Int32
+    getter config : Config
 
-    def initialize(root : String, @max_output_bytes : Int32 = DEFAULT_MAX_OUTPUT_BYTES)
+    def initialize(root : String, @config : Config = Config.new)
+      @config.validate!
       @sandbox = Sandbox.new(root)
+    end
+
+    def max_output_bytes : Int32
+      @config.max_output_bytes
+    end
+
+    # The configured bounds, with whatever the caller named written over
+    # them. A nil argument means the caller said nothing, so the host's value
+    # stands; `false` is something the caller said and is honoured.
+    private def find_settings(max_depth : Int32?, max_matches : Int32?,
+                              include_hidden : Bool?, timeout_seconds : Float64?) : Find::Settings
+      settings = @config.find.to_settings
+      settings.max_depth = max_depth || settings.max_depth
+      settings.max_matches = max_matches || settings.max_matches
+      settings.include_hidden = include_hidden.nil? ? settings.include_hidden? : include_hidden
+      settings.timeout = timeout_seconds ? timeout_seconds.seconds : settings.timeout
+      settings
+    end
+
+    # :ditto:
+    private def grep_settings(max_matches : Int32?, max_matches_per_file : Int32?,
+                              max_depth : Int32?, include_hidden : Bool?,
+                              timeout_seconds : Float64?) : Grep::Settings
+      settings = @config.grep.to_settings
+      settings.max_matches = max_matches || settings.max_matches
+      settings.max_matches_per_file = max_matches_per_file || settings.max_matches_per_file
+      settings.max_depth = max_depth || settings.max_depth
+      settings.include_hidden = include_hidden.nil? ? settings.include_hidden? : include_hidden
+      settings.timeout = timeout_seconds ? timeout_seconds.seconds : settings.timeout
+      settings
     end
 
     # ------------------------------------------------------------------ #
@@ -119,10 +151,10 @@ module FsUtils
       exclude : Array(String) = [] of String,
       type : String? = nil,
       min_depth : Int32 = 0,
-      max_depth : Int32 = 32,
-      max_matches : Int32 = 200,
-      include_hidden : Bool = false,
-      timeout_seconds : Float64 = 10.0,
+      max_depth : Int32? = nil,
+      max_matches : Int32? = nil,
+      include_hidden : Bool? = nil,
+      timeout_seconds : Float64? = nil,
     ) : SearchResponse(FindResult)
       roots = @sandbox.resolve_all(paths)
       if missing = missing_root(roots)
@@ -131,11 +163,7 @@ module FsUtils
 
       entry_type = parse_type(type)
 
-      settings = Find::Settings.new
-      settings.max_depth = max_depth
-      settings.max_matches = max_matches
-      settings.include_hidden = include_hidden
-      settings.timeout = timeout_seconds.seconds
+      settings = find_settings(max_depth, max_matches, include_hidden, timeout_seconds)
 
       results = [] of FindResult
       report = Find.new(
@@ -189,11 +217,11 @@ module FsUtils
       types : Array(String) = [] of String,
       include_globs : Array(String) = [] of String,
       exclude_globs : Array(String) = [] of String,
-      max_matches : Int32 = 200,
-      max_matches_per_file : Int32 = 20,
-      max_depth : Int32 = 25,
-      include_hidden : Bool = false,
-      timeout_seconds : Float64 = 10.0,
+      max_matches : Int32? = nil,
+      max_matches_per_file : Int32? = nil,
+      max_depth : Int32? = nil,
+      include_hidden : Bool? = nil,
+      timeout_seconds : Float64? = nil,
     ) : SearchResponse(GrepResult)
       roots = @sandbox.resolve_all(paths)
       if missing = missing_root(roots)
@@ -202,12 +230,7 @@ module FsUtils
 
       grep_mode = parse_mode(mode)
 
-      settings = Grep::Settings.new
-      settings.max_matches = max_matches
-      settings.max_matches_per_file = max_matches_per_file
-      settings.max_depth = max_depth
-      settings.include_hidden = include_hidden
-      settings.timeout = timeout_seconds.seconds
+      settings = grep_settings(max_matches, max_matches_per_file, max_depth, include_hidden, timeout_seconds)
 
       results = [] of GrepResult
       report = Grep.new(
@@ -320,7 +343,7 @@ without `..`, and do not follow symlinks out of it."
     # Sized by summing each result rather than re-serialising the whole array,
     # which would be quadratic for the case that needs it most.
     private def fit(results : Array(T)) : {Array(T), Int32} forall T
-      budget = @max_output_bytes
+      budget = max_output_bytes
       kept = 0
       used = 0
 

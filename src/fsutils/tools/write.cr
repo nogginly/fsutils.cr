@@ -57,7 +57,7 @@ module FsUtils
       end
 
       previous = ::File.exists?(resolved) ? count_lines(resolved) : nil
-      result = Writer.new(resolved, content).write
+      result = Writer.new(resolved, content, @config.write.to_settings).write
 
       WriteResponse.new(
         ok: true,

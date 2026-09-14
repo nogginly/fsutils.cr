@@ -77,6 +77,7 @@ module FsUtils
         old_string,
         new_string,
         replace_all: replace_all,
+        settings: @config.replace.to_settings,
       ).replace
 
       ReplaceResponse.new(
