@@ -144,8 +144,8 @@ describe "FsUtils::Tools#write" do
   end
 
   it "ships a valid schema" do
-    schema = JSON.parse(FsUtils::Tools::WRITE_SCHEMA)
-    schema["name"].as_s.should eq "write_text_file"
-    schema["input_schema"]["required"].as_a.map(&.as_s).should eq ["path", "content"]
+    FsUtils::Tools::WRITE_DEFINITION.name.should eq "write_text_file"
+    JSON.parse(FsUtils::Tools::WRITE_DEFINITION.schema)["required"].as_a.map(&.as_s)
+      .should eq ["path", "content"]
   end
 end

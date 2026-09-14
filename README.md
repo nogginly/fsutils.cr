@@ -183,9 +183,41 @@ Four things to know:
   answer might be a sample: a budget spent, a noisy file or directory capped, or
   results dropped to fit the output size limit.
 
-`Tools::FIND_SCHEMA`, `GREP_SCHEMA`, `READ_SCHEMA`, `WRITE_SCHEMA` and
-`REPLACE_SCHEMA` ship the JSON Schema for each tool, so a host can register them
-without hand-writing a description that drifts from the code.
+A host dispatching what a model asked for calls by name:
+
+```crystal
+json = tools.call("read_text_file", JSON.parse(%({"path": "src/main.cr"})))
+```
+
+It returns serialised JSON, since that is what the model receives anyway. The
+five typed methods are unchanged and remain the API for Crystal callers.
+
+An unknown tool name raises `ArgumentError`: the host chose what to register,
+so the host is the only one who can act on it. Wrap the call, because a model
+can invent a name. Everything a model *can* fix — arguments that are not an
+object, a parameter the tool does not accept, a value of the wrong type — comes
+back as a normal error response in the usual envelope. Nothing is coerced: a
+`max_matches` of `"200"` is refused rather than read as 200.
+
+`Tools::DEFINITIONS` publishes each tool as its three parts — `name`,
+`description` and `schema` — so a host can register them without hand-writing a
+description that drifts from the code:
+
+```crystal
+FsUtils::Tools::DEFINITIONS.each do |tool|
+  host.register(tool.name, tool.description, tool.schema)
+end
+```
+
+The parts are published rather than a ready-made tool definition because every
+vendor bundles them differently — Anthropic's `input_schema` is OpenAI's and
+Gemini's `parameters`. Assembling the shape your protocol wants is
+interpolation; taking a bundled one apart would be parsing. The schemas
+themselves stay inside the dialect all three accept.
+
+Tool names are fixed. There is no prefixing hook, because the descriptions
+cross-reference each other by name and a prefix applied naively would point a
+model at tools the host never registered.
 
 See [DESIGN](./DESIGN.md) for the reasoning, and `samples/` for four small
 command-line tools built on the helpers:

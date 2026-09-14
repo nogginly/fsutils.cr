@@ -167,8 +167,8 @@ describe "FsUtils::Tools#read" do
   end
 
   it "ships a valid schema" do
-    schema = JSON.parse(FsUtils::Tools::READ_SCHEMA)
-    schema["name"].as_s.should eq "read_text_file"
-    schema["input_schema"]["required"].as_a.map(&.as_s).should eq ["path"]
+    FsUtils::Tools::READ_DEFINITION.name.should eq "read_text_file"
+    JSON.parse(FsUtils::Tools::READ_DEFINITION.schema)["required"].as_a.map(&.as_s)
+      .should eq ["path"]
   end
 end

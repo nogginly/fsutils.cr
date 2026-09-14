@@ -719,13 +719,59 @@ model, which can only act on JSON, so it never raises. Construction answers a
 host at startup, which can read an exception and will otherwise watch every
 subsequent call fail for the same reason.
 
-### Tool schemas
+### Calling by name
 
-Each tool ships its JSON Schema as a constant — `Tools::FIND_SCHEMA`,
-`Tools::GREP_SCHEMA` — so a host can register the tool without hand-writing a
-description that drifts from the implementation. The schema is the documentation
-the model actually reads, so limits and their defaults are described in it
-explicitly.
+`Tools#call(name, arguments)` exists because the schemas describe half a
+contract the code did not expose. A host that registers `find_files` has to map
+that name back to `find` and unpack ten arguments out of a JSON object, and
+every host was going to write the same `case` statement and the same coercions.
+
+It returns `String` rather than a response type. There are five result shapes
+and no useful supertype, and inventing a union or a common struct to satisfy a
+signature whose output is immediately serialised for a model would be work in
+service of the type system rather than the caller.
+
+It raises `ArgumentError` for a name that is not a tool -- the second place in
+this layer that raises, and for the same reason as the first. The question is
+always who can act on the failure. A bad argument is the model's to fix, so it
+comes back as an error response. A name that was never registered is the
+*host's*: it chose the registration, and answering the model with JSON would
+hide a wiring bug behind a plausible-looking refusal. Worth noting that the
+name does arrive from a model, which can invent one, so hosts need a `rescue`
+rather than an assumption.
+
+Arguments are checked, never coerced. A `max_matches` of `"200"` is refused,
+and so is any parameter the schema does not declare. Both are deliberate: a
+silently-ignored `max_bytes: 100` costs a model several turns to notice, and a
+quietly-coerced string teaches it that the schema is advisory. The accepted
+keys are read from the published schemas at startup rather than kept as a
+second list, so the set a call accepts and the set the model was told about
+cannot drift.
+
+### Tool definitions
+
+Each tool ships as a `Definition` — `name`, `description` and `schema` — and all
+five as `Tools::DEFINITIONS`. The schema is the documentation the model actually
+reads, so limits and their defaults are described in it explicitly.
+
+The three parts are published separately rather than as a ready-made tool
+definition, because there is no neutral bundled shape: Anthropic keys the
+parameter schema `input_schema`, OpenAI and Gemini key it `parameters`. Shipping
+one of those would have made this an Anthropic artifact that other hosts take
+apart again — and assembling a structure is safe where parsing one back apart is
+where things go wrong. The schemas stay inside the subset all three vendors
+accept: no `$ref`, no `oneOf`, no `format`, which a spec enforces so a
+convenient keyword cannot creep in and fail at the vendor instead of at home.
+
+**Tool names are fixed, and this is a constraint rather than an oversight.** A
+host that wants to namespace them — because another toolkit in the same process
+also has a `read_text_file` — has no hook. The reason is that the descriptions
+cross-reference one another ("locate it with `find_files`"), as do two error
+suggestions, so a prefix applied to the names alone would leave the shard
+telling a model to call something that was never registered: worse than
+offering no suggestion at all. The names are single-sourced in `Tools::Names`
+and interpolated everywhere they appear, so adding a prefix hook later is a
+small change; it is simply not one that has been made.
 
 ---
 
