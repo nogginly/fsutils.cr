@@ -77,7 +77,7 @@ module FsUtils
       WriteResponse.failure(
         ErrorCode::FILE_EXISTS,
         "#{@sandbox.relative(resolved)} already exists (#{lines} lines)",
-        "Set `overwrite: true` to replace it, or use text_replace for a partial change.")
+        "Set `overwrite: true` to replace it, or use #{Names::REPLACE} for a partial change.")
     end
 
     private def write_failure(ex : Exception) : WriteResponse

@@ -719,13 +719,30 @@ model, which can only act on JSON, so it never raises. Construction answers a
 host at startup, which can read an exception and will otherwise watch every
 subsequent call fail for the same reason.
 
-### Tool schemas
+### Tool definitions
 
-Each tool ships its JSON Schema as a constant — `Tools::FIND_SCHEMA`,
-`Tools::GREP_SCHEMA` — so a host can register the tool without hand-writing a
-description that drifts from the implementation. The schema is the documentation
-the model actually reads, so limits and their defaults are described in it
-explicitly.
+Each tool ships as a `Definition` — `name`, `description` and `schema` — and all
+five as `Tools::DEFINITIONS`. The schema is the documentation the model actually
+reads, so limits and their defaults are described in it explicitly.
+
+The three parts are published separately rather than as a ready-made tool
+definition, because there is no neutral bundled shape: Anthropic keys the
+parameter schema `input_schema`, OpenAI and Gemini key it `parameters`. Shipping
+one of those would have made this an Anthropic artifact that other hosts take
+apart again — and assembling a structure is safe where parsing one back apart is
+where things go wrong. The schemas stay inside the subset all three vendors
+accept: no `$ref`, no `oneOf`, no `format`, which a spec enforces so a
+convenient keyword cannot creep in and fail at the vendor instead of at home.
+
+**Tool names are fixed, and this is a constraint rather than an oversight.** A
+host that wants to namespace them — because another toolkit in the same process
+also has a `read_text_file` — has no hook. The reason is that the descriptions
+cross-reference one another ("locate it with `find_files`"), as do two error
+suggestions, so a prefix applied to the names alone would leave the shard
+telling a model to call something that was never registered: worse than
+offering no suggestion at all. The names are single-sourced in `Tools::Names`
+and interpolated everywhere they appear, so adding a prefix hook later is a
+small change; it is simply not one that has been made.
 
 ---
 

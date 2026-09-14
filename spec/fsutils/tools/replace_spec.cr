@@ -162,9 +162,8 @@ describe "FsUtils::Tools#text_replace" do
   end
 
   it "ships a valid schema" do
-    schema = JSON.parse(FsUtils::Tools::REPLACE_SCHEMA)
-    schema["name"].as_s.should eq "text_replace"
-    schema["input_schema"]["required"].as_a.map(&.as_s)
+    FsUtils::Tools::REPLACE_DEFINITION.name.should eq "text_replace"
+    JSON.parse(FsUtils::Tools::REPLACE_DEFINITION.schema)["required"].as_a.map(&.as_s)
       .should eq ["path", "old_string", "new_string"]
   end
 end

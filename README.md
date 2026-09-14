@@ -183,9 +183,25 @@ Four things to know:
   answer might be a sample: a budget spent, a noisy file or directory capped, or
   results dropped to fit the output size limit.
 
-`Tools::FIND_SCHEMA`, `GREP_SCHEMA`, `READ_SCHEMA`, `WRITE_SCHEMA` and
-`REPLACE_SCHEMA` ship the JSON Schema for each tool, so a host can register them
-without hand-writing a description that drifts from the code.
+`Tools::DEFINITIONS` publishes each tool as its three parts — `name`,
+`description` and `schema` — so a host can register them without hand-writing a
+description that drifts from the code:
+
+```crystal
+FsUtils::Tools::DEFINITIONS.each do |tool|
+  host.register(tool.name, tool.description, tool.schema)
+end
+```
+
+The parts are published rather than a ready-made tool definition because every
+vendor bundles them differently — Anthropic's `input_schema` is OpenAI's and
+Gemini's `parameters`. Assembling the shape your protocol wants is
+interpolation; taking a bundled one apart would be parsing. The schemas
+themselves stay inside the dialect all three accept.
+
+Tool names are fixed. There is no prefixing hook, because the descriptions
+cross-reference each other by name and a prefix applied naively would point a
+model at tools the host never registered.
 
 See [DESIGN](./DESIGN.md) for the reasoning, and `samples/` for four small
 command-line tools built on the helpers:

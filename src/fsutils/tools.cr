@@ -311,7 +311,7 @@ without `..`, and do not follow symlinks out of it."
     end
 
     private def not_found_suggestion(path : String) : String
-      "Check the spelling, or locate it with find_files using \
+      "Check the spelling, or locate it with #{Names::FIND} using \
 `name: [#{::File.basename(path).inspect}]`."
     end
 
