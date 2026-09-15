@@ -84,10 +84,18 @@ module FsUtils
         (value.as_i64? || raise wrong_type(key, "an integer", value)).to_i32
       end
 
+      # JSON draws no line between 5 and 5.0 and neither does the published
+      # "type": "number", so both are read. This is not the coercion the
+      # layer refuses: that rule is about distinctions the schema makes, and
+      # a string is one where an integral number is not.
       def float?(key : String) : Float64?
         value = @values[key]?
         return if value.nil? || value.raw.nil?
-        value.as_f? || raise wrong_type(key, "a number", value)
+        case raw = value.raw
+        when Float64 then raw
+        when Int64   then raw.to_f
+        else              raise wrong_type(key, "a number", value)
+        end
       end
 
       def bool?(key : String) : Bool?
@@ -168,11 +176,17 @@ module FsUtils
       args = Arguments.new(name, arguments)
 
       case name
-      when Names::FIND  then call_find(args)
-      when Names::GREP  then call_grep(args)
-      when Names::READ  then call_read(args)
-      when Names::WRITE then call_write(args)
-      else                   call_replace(args)
+      when Names::FIND    then call_find(args)
+      when Names::GREP    then call_grep(args)
+      when Names::READ    then call_read(args)
+      when Names::WRITE   then call_write(args)
+      when Names::REPLACE then call_replace(args)
+      else
+        # Unreachable while the guard above and this case agree on
+        # `Names::ALL`. Explicit so that the day they disagree -- a tool
+        # named and registered but not dispatched -- the new tool fails
+        # loudly instead of being answered by whichever branch was last.
+        raise ArgumentError.new("unhandled tool: #{name}")
       end
     rescue ex : Arguments::Rejected
       ErrorResponse.new(ErrorInfo.new(

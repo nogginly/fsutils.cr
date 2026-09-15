@@ -59,6 +59,19 @@ describe "FsUtils::Tools#call" do
       end
     end
 
+    # The dispatch case and the guard above it both spell out `Names::ALL`.
+    # A name that is registered but has no branch would otherwise be answered
+    # by the last one, complaining about arguments the caller never sent.
+    it "dispatches every published name to its own tool" do
+      with_tools do |tools, _|
+        FsUtils::Tools::Names::ALL.each do |name|
+          response = tools.call(name)
+          next if response.ok?
+          (response.error.try(&.message) || "").should contain name
+        end
+      end
+    end
+
     it "defaults to no arguments for a tool that requires none" do
       with_tools do |tools, _|
         JSON.parse(tools.call("find_files").to_json)["ok"].as_bool.should be_true
@@ -87,6 +100,19 @@ describe "FsUtils::Tools#call" do
         json["error"]["code"].as_s.should eq "invalid_argument"
         json["error"]["message"].as_s.should contain "max_bytes"
         json["error"]["suggestion"].as_s.should contain "line_numbers"
+      end
+    end
+
+    # `"type": "number"` admits both, so refusing 5 would enforce a Crystal
+    # distinction the model was never told about.
+    it "reads an integral number for a number parameter" do
+      with_tools do |tools, _|
+        call(tools, "find_files", %({"timeout_seconds": 5}))["ok"].as_bool.should be_true
+        call(tools, "find_files", %({"timeout_seconds": 5.0}))["ok"].as_bool.should be_true
+
+        json = call(tools, "find_files", %({"timeout_seconds": "5"}))
+        json["ok"].as_bool.should be_false
+        json["error"]["message"].as_s.should contain "must be a number"
       end
     end
 
