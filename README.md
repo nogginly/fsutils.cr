@@ -199,15 +199,21 @@ object, a parameter the tool does not accept, a value of the wrong type — come
 back as a normal error response in the usual envelope. Nothing is coerced: a
 `max_matches` of `"200"` is refused rather than read as 200.
 
-`Tools::DEFINITIONS` publishes each tool as its three parts — `name`,
+`Tools#definitions` publishes each tool as its three parts — `name`,
 `description` and `schema` — so a host can register them without hand-writing a
 description that drifts from the code:
 
 ```crystal
-FsUtils::Tools::DEFINITIONS.each do |tool|
+tools.definitions.each do |tool|
   host.register(tool.name, tool.description, tool.schema)
 end
 ```
+
+The descriptions state the limits actually in force, so they are built from the
+instance's configuration: set `grep.max_matches` to 20 and the schema says 20.
+Registering before there is a `Tools` to ask, use
+`FsUtils::Tools::Definitions.all(config)`. They are built once; if you mutate a
+`Config` after construction, call `refresh_definitions`.
 
 The parts are published rather than a ready-made tool definition because every
 vendor bundles them differently — Anthropic's `input_schema` is OpenAI's and
