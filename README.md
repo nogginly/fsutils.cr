@@ -186,18 +186,34 @@ Four things to know:
 A host dispatching what a model asked for calls by name:
 
 ```crystal
-json = tools.call("read_text_file", JSON.parse(%({"path": "src/main.cr"})))
+response = tools.call("read_text_file", arguments)  # Hash(String, JSON::Any)
+host.reply(body: response.to_json, is_error: !response.ok?)
 ```
 
-It returns serialised JSON, since that is what the model receives anyway. The
-five typed methods are unchanged and remain the API for Crystal callers.
+It returns the response, not its serialisation, because every protocol carries
+an error flag on the tool result separate from its body and a host should not
+have to parse 32 KB to read one boolean. The return type is
+`FsUtils::Tools::Response`, a union of the six response types. Every member
+answers `ok?`, `to_json`, `notice` and `error`, so the common case needs no
+`case`; narrow to a member — `SearchResponse(GrepResult)` — for a
+shape-specific field such as `summary`. The union gains a member with every
+tool added, so an exhaustive `case` over it is not a stable contract.
+
+Arguments are a `Hash(String, JSON::Any)`, and the second parameter may be
+omitted for a tool that needs none. If you hold a `JSON::Any`, write `.as_h`:
+"these arguments are not an object" is a host bug and belongs in the host as an
+exception, not in the model's error channel where nothing can act on it. The
+*values* stay `JSON::Any` on purpose, so a `max_matches` of `"200"` reaches
+this layer and is refused here with a suggestion the model can follow.
 
 An unknown tool name raises `ArgumentError`: the host chose what to register,
 so the host is the only one who can act on it. Wrap the call, because a model
-can invent a name. Everything a model *can* fix — arguments that are not an
-object, a parameter the tool does not accept, a value of the wrong type — comes
-back as a normal error response in the usual envelope. Nothing is coerced: a
+can invent a name. Everything a model *can* fix — a parameter the tool does not
+accept, a value of the wrong type, a missing required one — comes back as a
+normal error response in the usual envelope. Nothing is coerced: a
 `max_matches` of `"200"` is refused rather than read as 200.
+
+The five typed methods are unchanged and remain the API for Crystal callers.
 
 `Tools#definitions` publishes each tool as its three parts — `name`,
 `description` and `schema` — so a host can register them without hand-writing a

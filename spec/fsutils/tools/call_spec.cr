@@ -13,7 +13,7 @@ private def with_tools(&)
 end
 
 private def call(tools, name, arguments = "{}")
-  JSON.parse(tools.call(name, JSON.parse(arguments)))
+  JSON.parse(tools.call(name, JSON.parse(arguments).as_h).to_json)
 end
 
 describe "FsUtils::Tools#call" do
@@ -30,17 +30,38 @@ describe "FsUtils::Tools#call" do
       end
     end
 
-    it "returns what the typed method would have" do
+    it "serialises to what the typed method would have" do
       with_tools do |tools, _|
-        tools.call("read_text_file", JSON.parse(%({"path": "src/a.cr"})))
+        tools.call("read_text_file", JSON.parse(%({"path": "src/a.cr"})).as_h).to_json
           .should eq tools.read(path: "src/a.cr").to_json
       end
     end
 
-    it "accepts an empty object and a null for a tool with no required arguments" do
+    # The load-bearing property of the union: a host reads the envelope
+    # without a case over six members, and without re-parsing the body.
+    it "answers the envelope across the union without narrowing" do
       with_tools do |tools, _|
-        call(tools, "find_files")["ok"].as_bool.should be_true
-        call(tools, "find_files", "null")["ok"].as_bool.should be_true
+        tools.call("read_text_file", JSON.parse(%({"path": "src/a.cr"})).as_h).ok?.should be_true
+        tools.call("find_files", JSON.parse(%({"name": ["*.cr"]})).as_h).ok?.should be_true
+
+        failed = tools.call("read_text_file", JSON.parse(%({"path": "nope.cr"})).as_h)
+        failed.ok?.should be_false
+        failed.error.try(&.code).should eq FsUtils::ErrorCode::NOT_FOUND
+        failed.notice.should be_nil
+      end
+    end
+
+    it "narrows to a member for a shape-specific field" do
+      with_tools do |tools, _|
+        response = tools.call("search_file_contents", JSON.parse(%({"pattern": "hit"})).as_h)
+        response.as(FsUtils::Tools::SearchResponse(FsUtils::Tools::GrepResult))
+          .summary.try(&.matches).should eq 2
+      end
+    end
+
+    it "defaults to no arguments for a tool that requires none" do
+      with_tools do |tools, _|
+        JSON.parse(tools.call("find_files").to_json)["ok"].as_bool.should be_true
       end
     end
   end
@@ -51,7 +72,7 @@ describe "FsUtils::Tools#call" do
     it "raises rather than answering the model" do
       with_tools do |tools, _|
         expect_raises(ArgumentError, /unknown tool: fs_read_text_file/) do
-          tools.call("fs_read_text_file", JSON.parse(%({"path": "src/a.cr"})))
+          tools.call("fs_read_text_file", JSON.parse(%({"path": "src/a.cr"})).as_h)
         end
       end
     end
@@ -82,13 +103,6 @@ describe "FsUtils::Tools#call" do
       with_tools do |tools, _|
         json = call(tools, "find_files", %({"name": ["*.cr", 7]}))
         json["error"]["message"].as_s.should contain "array of strings"
-      end
-    end
-
-    it "refuses arguments that are not an object" do
-      with_tools do |tools, _|
-        json = call(tools, "find_files", %(["*.cr"]))
-        json["error"]["message"].as_s.should contain "must be a JSON object"
       end
     end
 

@@ -726,10 +726,49 @@ contract the code did not expose. A host that registers `find_files` has to map
 that name back to `find` and unpack ten arguments out of a JSON object, and
 every host was going to write the same `case` statement and the same coercions.
 
-It returns `String` rather than a response type. There are five result shapes
-and no useful supertype, and inventing a union or a common struct to satisfy a
-signature whose output is immediately serialised for a model would be work in
-service of the type system rather than the caller.
+It returns a response, not a serialised string. It used to return `String`, on
+the argument that five result shapes have no useful supertype and inventing one
+would serve the type system rather than the caller. That argument was right
+about inventing a common struct and wrong about the cost, because every
+protocol — Anthropic, OpenAI, Gemini — carries an error flag on the tool result
+*separate* from its body, so a host had to re-parse a response it had just been
+handed to read one boolean, or leave the flag unset and tell the model a call
+succeeded whose body says it did not.
+
+The return type is `Tools::Response`, an alias for the union of the six
+response types. It invents nothing: every member already includes
+`JSON::Serializable` and `Envelope`, and Crystal dispatches a method on a union
+when every member defines it, so `ok?`, `to_json`, `notice` and `error` are
+available without narrowing. A host wanting `summary` or `hunks` narrows to the
+member; one that does not, pays nothing.
+
+The union is also the only shape that costs nothing at runtime. Returning
+`Envelope` as a type would box, because a struct stored as a module type goes
+to the heap; a union of structs is sized to its largest member and stays
+inline. A flat `ok` / `body` result struct was considered and rejected for
+discarding exactly the typing being asked for and forcing an eager `to_json`.
+
+The cost is that **the union widens with every tool added**. `ls` and `tree`
+will each add a member. A host calling `ok?` and `to_json` is unaffected; one
+with an exhaustive `case` breaks at compile time with the compiler naming the
+missing member, which is the right failure mode but a real one. An exhaustive
+`case` over `Response` is not a stable contract and should not be treated as
+one.
+
+Arguments arrive as `Hash(String, JSON::Any)` rather than `JSON::Any`, with the
+parameter defaulted so a tool needing none is called with a name alone. The
+container being wrong is a *host* bug: a model's arguments arrive as an object
+or the protocol layer has already failed, so "this is not an object" was a
+caller error reported to the model, which cannot fix it. A host holding a
+`JSON::Any` writes `.as_h` and gets an exception at the point it got it wrong.
+
+The values stay `JSON::Any`, and the asymmetry is the point. This layer's
+promise is that it never raises for anything a model can fix, which requires a
+value type able to *hold* wrong data and carry it far enough inside the shard
+to be refused in the shard's own error vocabulary. Typed per-tool argument
+structs would break that: a `FindArgs` with `max_matches : Int32?` cannot
+represent `"200"`, so construction fails in the host and the host inherits
+authorship of the message the model reads.
 
 It raises `ArgumentError` for a name that is not a tool -- the second place in
 this layer that raises, and for the same reason as the first. The question is

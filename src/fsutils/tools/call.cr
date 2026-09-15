@@ -11,6 +11,25 @@ module FsUtils
       end
     end
 
+    # The default for a call that names no arguments. Shared rather than
+    # allocated per call; `Arguments` only reads it.
+    EMPTY_ARGUMENTS = {} of String => JSON::Any
+
+    # What `Tools#call` may return: one member per tool, plus the failure that
+    # belongs to none of them.
+    #
+    # Every member includes `JSON::Serializable` and `Envelope`, and Crystal
+    # dispatches a method on a union when every member defines it, so `ok?`,
+    # `to_json`, `notice` and `error` are available without narrowing. A host
+    # wanting a shape-specific field -- `summary`, `hunks` -- narrows to the
+    # member. A union of structs is sized to its largest member, so none of
+    # this boxes; returning `Envelope` as a type would.
+    #
+    # NOTE: this union grows with every tool added. `ls` and `tree` are on the
+    # roadmap. An exhaustive `case` over it is not a stable contract.
+    alias Response = SearchResponse(FindResult) | SearchResponse(GrepResult) |
+                     ReadResponse | WriteResponse | ReplaceResponse | ErrorResponse
+
     # A caller's arguments, checked against what the tool actually accepts.
     #
     # Every accessor either returns the typed value or raises `Rejected`,
@@ -36,12 +55,9 @@ module FsUtils
         {tool.name, JSON.parse(tool.schema)["properties"].as_h.keys}
       end
 
-      @values : Hash(String, JSON::Any)
-
-      # Raises `Rejected` if the arguments are not an object, or name anything
-      # the tool does not accept.
-      def initialize(@tool : String, arguments : JSON::Any)
-        @values = object(arguments)
+      # Raises `Rejected` if the arguments name anything the tool does not
+      # accept.
+      def initialize(@tool : String, @values : Hash(String, JSON::Any))
         reject_unknown
       end
 
@@ -98,13 +114,6 @@ module FsUtils
         value.nil? ? default : value
       end
 
-      private def object(arguments : JSON::Any) : Hash(String, JSON::Any)
-        return {} of String => JSON::Any if arguments.raw.nil?
-        arguments.as_h? || raise Rejected.new(
-          "arguments to #{@tool} must be a JSON object",
-          "Send the arguments as an object of named parameters, or {} for none.")
-      end
-
       private def reject_unknown : Nil
         accepted = ACCEPTED[@tool]
         unknown = @values.keys.reject { |key| accepted.includes?(key) }
@@ -129,13 +138,22 @@ module FsUtils
     # Call a tool by the name it is published under.
     #
     # The five typed methods remain the API for Crystal callers; this is for a
-    # host dispatching what a model asked for. The result is serialised JSON,
-    # because that is what the model receives anyway and it saves needing a
-    # common response type across five different result shapes.
+    # host dispatching what a model asked for. It returns the response rather
+    # than its serialisation, because every protocol carries an error flag on
+    # the tool result separate from its body, and a host that got a string back
+    # had to parse what it was just handed to read one boolean.
     #
     # ```
-    # tools.call("read_text_file", JSON.parse(%({"path": "src/main.cr"})))
+    # response = tools.call("read_text_file", JSON.parse(%({"path": "src/main.cr"})).as_h)
+    # host.reply(body: response.to_json, is_error: !response.ok?)
     # ```
+    #
+    # Arguments are a hash rather than a `JSON::Any`, because "this is not an
+    # object" is a host bug, not something a model can fix: a host holding a
+    # `JSON::Any` writes `.as_h` and gets the exception where it belongs. The
+    # *values* stay `JSON::Any`, which is the asymmetry that matters -- a
+    # `max_matches` of `"200"` has to reach this layer to be refused here, in
+    # this layer's error vocabulary.
     #
     # Raises `ArgumentError` for a name that is not a tool. That is the one
     # failure here the model cannot fix: the host chose what to register, so
@@ -144,8 +162,8 @@ module FsUtils
     # assumption that it cannot happen.
     #
     # Everything a model can fix comes back as an error response instead --
-    # arguments that are not an object, unknown parameters, wrong types.
-    def call(name : String, arguments : JSON::Any) : String
+    # unknown parameters, wrong types, a missing required one.
+    def call(name : String, arguments : Hash(String, JSON::Any) = EMPTY_ARGUMENTS) : Response
       raise ArgumentError.new("unknown tool: #{name}") unless Names::ALL.includes?(name)
       args = Arguments.new(name, arguments)
 
@@ -159,10 +177,10 @@ module FsUtils
     rescue ex : Arguments::Rejected
       ErrorResponse.new(ErrorInfo.new(
         ErrorCode::INVALID_ARGUMENT, ex.message || "invalid arguments",
-        ex.suggestion)).to_json
+        ex.suggestion))
     end
 
-    private def call_find(args : Arguments) : String
+    private def call_find(args : Arguments) : SearchResponse(FindResult)
       find(
         paths: args.strings("paths"),
         name: args.strings("name"),
@@ -174,10 +192,10 @@ module FsUtils
         max_matches: args.int?("max_matches"),
         include_hidden: args.bool?("include_hidden"),
         timeout_seconds: args.float?("timeout_seconds"),
-      ).to_json
+      )
     end
 
-    private def call_grep(args : Arguments) : String
+    private def call_grep(args : Arguments) : SearchResponse(GrepResult)
       grep(
         pattern: args.string("pattern"),
         paths: args.strings("paths"),
@@ -192,33 +210,33 @@ module FsUtils
         max_depth: args.int?("max_depth"),
         include_hidden: args.bool?("include_hidden"),
         timeout_seconds: args.float?("timeout_seconds"),
-      ).to_json
+      )
     end
 
-    private def call_read(args : Arguments) : String
+    private def call_read(args : Arguments) : ReadResponse
       read(
         path: args.string("path"),
         offset: args.int?("offset"),
         limit: args.int?("limit"),
         line_numbers: args.bool("line_numbers", true),
-      ).to_json
+      )
     end
 
-    private def call_write(args : Arguments) : String
+    private def call_write(args : Arguments) : WriteResponse
       write(
         path: args.string("path"),
         content: args.string("content"),
         overwrite: args.bool("overwrite", false),
-      ).to_json
+      )
     end
 
-    private def call_replace(args : Arguments) : String
+    private def call_replace(args : Arguments) : ReplaceResponse
       text_replace(
         path: args.string("path"),
         old_string: args.string("old_string"),
         new_string: args.string("new_string"),
         replace_all: args.bool("replace_all", false),
-      ).to_json
+      )
     end
   end
 end
