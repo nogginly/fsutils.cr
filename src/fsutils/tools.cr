@@ -106,6 +106,8 @@ module FsUtils
     getter sandbox : Sandbox
     getter config : Config
 
+    @definitions : Array(Definition)? = nil
+
     def initialize(root : String, @config : Config = Config.new)
       @config.validate!
       @sandbox = Sandbox.new(root)
@@ -113,6 +115,23 @@ module FsUtils
 
     def max_output_bytes : Int32
       @config.max_output_bytes
+    end
+
+    # The five tools as this instance's configuration bounds them, ready to
+    # register with a host.
+    #
+    # Built once, because the configuration is validated once at construction
+    # and building five strings per registration would be wasted work. A host
+    # that mutates its `Config` afterwards calls `refresh_definitions` to
+    # discard them.
+    def definitions : Array(Definition)
+      @definitions ||= Definitions.all(@config)
+    end
+
+    # Discards the memoised definitions, so the next call rebuilds them from
+    # the current configuration.
+    def refresh_definitions : Nil
+      @definitions = nil
     end
 
     # The configured bounds, with whatever the caller named written over

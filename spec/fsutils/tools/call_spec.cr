@@ -151,7 +151,7 @@ describe "FsUtils::Tools#call" do
     # Read from the published schemas rather than kept by hand, so a parameter
     # added to a schema is accepted without anyone remembering to.
     it "matches each tool's schema exactly" do
-      FsUtils::Tools::DEFINITIONS.each do |tool|
+      FsUtils::Tools::Definitions.all.each do |tool|
         declared = JSON.parse(tool.schema)["properties"].as_h.keys
         FsUtils::Tools::Arguments::ACCEPTED[tool.name].should eq declared
       end

@@ -252,12 +252,12 @@ describe FsUtils::Tools do
 
   describe "schemas" do
     it "ships valid JSON for each tool" do
-      FsUtils::Tools::FIND_DEFINITION.name.should eq "find_files"
-      find = JSON.parse(FsUtils::Tools::FIND_DEFINITION.schema)
+      FsUtils::Tools::Definitions.find.name.should eq "find_files"
+      find = JSON.parse(FsUtils::Tools::Definitions.find.schema)
       find["properties"]["name"]["type"].as_s.should eq "array"
 
-      FsUtils::Tools::GREP_DEFINITION.name.should eq "search_file_contents"
-      grep = JSON.parse(FsUtils::Tools::GREP_DEFINITION.schema)
+      FsUtils::Tools::Definitions.grep.name.should eq "search_file_contents"
+      grep = JSON.parse(FsUtils::Tools::Definitions.grep.schema)
       grep["required"].as_a.map(&.as_s).should eq ["pattern"]
     end
   end

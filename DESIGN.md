@@ -750,9 +750,29 @@ cannot drift.
 
 ### Tool definitions
 
-Each tool ships as a `Definition` — `name`, `description` and `schema` — and all
-five as `Tools::DEFINITIONS`. The schema is the documentation the model actually
-reads, so limits and their defaults are described in it explicitly.
+Each tool ships as a `Definition` — `name`, `description` and `schema` — built
+for a configuration by `Definitions.all` and offered per instance as
+`Tools#definitions`. The schema is the documentation the model actually reads,
+so limits and their defaults are described in it explicitly.
+
+Which is why they are built rather than fixed. Stating a default of 200 in a
+constant was true until `Config` let a host set 20 underneath it, and a schema
+that promises a boundary which is not there sends a model confidently at the
+wrong number — the failure the schemas exist to prevent, reintroduced by the
+feature before it. The same reasoning extends the descriptions to limits a
+model cannot set at all: the read byte budget, the write ceiling, grep's file
+size skip. A model discovering those by tripping over an error has already
+spent the turn.
+
+Built once per instance, because the configuration is validated once at
+construction and registration should not pay for five strings each time.
+`refresh_definitions` discards them for a host that mutates its config
+afterwards.
+
+Note that `Arguments::ACCEPTED` still reads a *default*-configuration set. That
+is not an oversight: a host's numbers change what the schemas say, never which
+parameters exist, so the accepted keys are configuration-independent and making
+them instance state would give `Arguments` a dependency on `Tools` for nothing.
 
 The three parts are published separately rather than as a ready-made tool
 definition, because there is no neutral bundled shape: Anthropic keys the

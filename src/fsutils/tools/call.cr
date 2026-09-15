@@ -29,8 +29,10 @@ module FsUtils
       end
 
       # The keys each tool accepts, read once from the published schemas so a
-      # hand-kept list cannot drift from what the model was told.
-      ACCEPTED = DEFINITIONS.to_h do |tool|
+      # hand-kept list cannot drift from what the model was told. Built from
+      # the default configuration deliberately: a host's numbers change what
+      # the schemas *say*, never which parameters exist.
+      ACCEPTED = Definitions.all.to_h do |tool|
         {tool.name, JSON.parse(tool.schema)["properties"].as_h.keys}
       end
 
