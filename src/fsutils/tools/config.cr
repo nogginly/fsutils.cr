@@ -156,6 +156,29 @@ module FsUtils
       # Serialised bytes beyond this are dropped from any response.
       property max_output_bytes : Int32 = DEFAULT_MAX_OUTPUT_BYTES
 
+      # Omit fields that report *when* or *where* a call ran, leaving only
+      # what is derived from the tree's contents and paths. Two identical
+      # calls then return byte-identical JSON, on any machine, from any
+      # checkout -- which is what makes a response usable as a recorded
+      # fixture, as a cache entry, or as one half of a run-to-run comparison.
+      #
+      # The fields removed are the contract, and the list will grow:
+      #
+      # - `summary.elapsed_ms` on `find_files` and `search_file_contents`
+      # - `modified` on each `find_files` result
+      #
+      # Removed, not zeroed. An `elapsed_ms` of 0.0 is a number a model may
+      # reason about; an absent field is the honest form.
+      #
+      # NOTE: this covers fields that are volatile by *construction*. A time
+      # budget is volatile by *measurement*: an identical call may stop early
+      # on a slower machine and return less. A response whose `stop_reason`
+      # is `timeout` did different work, and no flag can make that otherwise
+      # -- assert that it does not happen. Bounding a walk by work rather
+      # than by clock avoids it: `max_matches`, `max_depth` and
+      # `max_entries_scanned` truncate identically everywhere.
+      property? reproducible : Bool = false
+
       property find : Find = Find.new
       property grep : Grep = Grep.new
       property read : Read = Read.new

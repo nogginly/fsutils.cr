@@ -37,7 +37,9 @@ module FsUtils
       include JSON::Serializable
       getter matches : Int32
       getter scanned : Int32
-      getter elapsed_ms : Float64
+      # Nil under `Config#reproducible?`, which is the only thing here that
+      # depends on the machine rather than on the tree.
+      getter elapsed_ms : Float64?
       getter files_scanned : Int32?
       getter files_skipped : Int32?
 
@@ -50,7 +52,9 @@ module FsUtils
       getter path : String
       getter type : String
       getter size : Int64
-      getter modified : String
+      # Nil under `Config#reproducible?`: an mtime is the time the tree was
+      # materialised, so it differs between checkouts of identical content.
+      getter modified : String?
 
       def initialize(@path, @type, @size, @modified)
       end
@@ -199,7 +203,7 @@ module FsUtils
           path: @sandbox.relative(match.path),
           type: match.type.to_s.downcase,
           size: match.size,
-          modified: match.modification_time.to_rfc3339,
+          modified: modified_at(match),
         )
       end
 
@@ -210,7 +214,7 @@ module FsUtils
         summary: Summary.new(
           matches: report.matches,
           scanned: report.scanned,
-          elapsed_ms: report.elapsed.total_milliseconds.round(1),
+          elapsed_ms: elapsed_ms(report),
         ),
         truncated: truncated?(report, dropped),
         stop_reason: report.stop_reason.to_s.underscore,
@@ -280,7 +284,7 @@ module FsUtils
         summary: Summary.new(
           matches: report.matches,
           scanned: report.scanned,
-          elapsed_ms: report.elapsed.total_milliseconds.round(1),
+          elapsed_ms: elapsed_ms(report),
           files_scanned: report.files_scanned,
           files_skipped: report.files_skipped,
         ),
@@ -375,6 +379,19 @@ without `..`, and do not follow symlinks out of it."
 
       return {results, 0} if kept == results.size
       {results[0, kept], results.size - kept}
+    end
+
+    # The two fields `Config#reproducible?` removes. Both are answered here
+    # rather than at the call sites so the flag has one place to be wrong.
+
+    private def elapsed_ms(report) : Float64?
+      return if @config.reproducible?
+      report.elapsed.total_milliseconds.round(1)
+    end
+
+    private def modified_at(match) : String?
+      return if @config.reproducible?
+      match.modification_time.to_rfc3339
     end
 
     private def truncated?(report, dropped : Int32) : Bool?

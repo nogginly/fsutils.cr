@@ -134,6 +134,7 @@ larger agent configuration, and every field is optional:
 ```yaml
 tool_config:
   max_output_bytes: 32000
+  reproducible: false
   grep:
     max_matches: 100
     max_depth: 10
@@ -224,6 +225,27 @@ tools.definitions.each do |tool|
   host.register(tool.name, tool.description, tool.schema)
 end
 ```
+
+### Responses that repeat
+
+`reproducible: true` omits the fields that report *when* or *where* a call ran,
+leaving only what is derived from the tree's contents and paths. Two identical
+calls then return byte-identical JSON, on any machine, from any checkout. The
+list is short and is part of the contract: `summary.elapsed_ms` on both
+searching tools, and `modified` on each `find_files` result. They are omitted
+rather than zeroed — an `elapsed_ms` of 0.0 is a number a model may reason
+about.
+
+This is what makes a response usable as a recorded fixture, and the same
+property is what lets a host cache a result against an unchanged tree or
+compare two runs of an agent.
+
+It covers fields that are volatile by construction, not by measurement. A time
+budget is the latter: an identical call may stop early on a slower machine and
+return less. A response whose `stop_reason` is `timeout` genuinely did
+different work and the guarantee does not cover it — assert that it never
+happens, and bound the walk by work rather than by clock, since `max_matches`,
+`max_depth` and `max_entries_scanned` truncate identically everywhere.
 
 The descriptions state the limits actually in force, so they are built from the
 instance's configuration: set `grep.max_matches` to 20 and the schema says 20.

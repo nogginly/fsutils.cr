@@ -25,6 +25,7 @@ describe FsUtils::Tools::Config do
       config.grep.max_depth.should eq 25
       config.read.default_limit.should eq FsUtils::Reader::DEFAULT_LIMIT
       config.max_output_bytes.should eq FsUtils::Tools::DEFAULT_MAX_OUTPUT_BYTES
+      config.reproducible?.should be_false
     end
   end
 
@@ -43,6 +44,7 @@ describe FsUtils::Tools::Config do
     it "reads every section" do
       config = FsUtils::Tools::Config.from_yaml(<<-YAML)
         max_output_bytes: 4096
+        reproducible: true
         find:
           max_matches: 5
           include_hidden: true
@@ -56,6 +58,7 @@ describe FsUtils::Tools::Config do
         YAML
 
       config.max_output_bytes.should eq 4096
+      config.reproducible?.should be_true
       config.find.max_matches.should eq 5
       config.find.include_hidden?.should be_true
       config.grep.max_matches_per_file.should eq 2

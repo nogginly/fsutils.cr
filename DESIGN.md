@@ -719,6 +719,63 @@ model, which can only act on JSON, so it never raises. Construction answers a
 host at startup, which can read an exception and will otherwise watch every
 subsequent call fail for the same reason.
 
+### Responses that repeat
+
+`Config#reproducible?` omits fields whose value reports *when* or *where* a call
+ran, leaving a response that is a function of the tree's contents and paths.
+Two fields qualify today: `Summary#elapsed_ms` on both searching tools, and
+`FindResult#modified`.
+
+The motivating case is recorded testing. A CLI replaying HTTP exchanges runs
+its tools for real on every pass, so a tool result computed locally becomes
+part of the next request's body, and that body is what the recording matches
+against. One `elapsed_ms` makes a tool-calling turn unreplayable on any machine,
+including the one that recorded it. Caching a result against an unchanged tree
+and comparing two runs of an agent fall out of the same property.
+
+**The switch is named after the guarantee, not after a category of field.** A
+`metrics` switch was the obvious alternative and cuts in the wrong place three
+ways: `modified` is not a metric but file metadata; four of `Summary`'s five
+fields are metrics a model needs and that vary with nothing; and the day a
+deterministic metric or a volatile non-metric is added, category and guarantee
+part company while the host keeps setting the flag it always set.
+
+**`reproducible` rather than `deterministic`.** Under an unchanged tree an mtime
+is perfectly deterministic — the same call returns the same string a second
+later. What it is not is reproducible across *checkouts*, where identical
+content was materialised at a different time, and a recording made on a laptop
+is replayed from a fresh checkout in CI. The analogy is reproducible builds,
+where the same source yields the same bytes regardless of machine or clock, and
+where the things stripped to achieve it are exactly timestamps and paths.
+`idempotent` would have been wrong outright: that is a property of effects, and
+`write_text_file` will never have it.
+
+Fields are **omitted, not zeroed**. An `elapsed_ms` of 0.0 is a number a model
+may reason about; an absent field is the honest form. Both fields became
+nilable to allow it, which is a breaking change for a Crystal caller reading
+`result.modified` and invisible to one reading JSON, since nil fields are
+already dropped.
+
+**The flag does not touch the timeout, deliberately.** A time budget is volatile
+by measurement rather than by construction: an identical call may stop early on
+a slower machine and return less, which is the same call genuinely doing
+different work. Suppressing `timeout_seconds` under `reproducible` was
+considered and rejected, because it would make a flag about output shape into
+the only way to remove a bound — and a host wanting no time budget would then
+ask for reproducibility to get it. Instead the lapse is *detectable*: a
+`stop_reason` of `timeout` marks the exact call where the guarantee did not
+hold, on the machine where it did not hold, which is better than a startup
+warning about a risk that may never materialise. Hosts are told to bound by
+work instead; `max_matches`, `max_depth` and `max_entries_scanned` truncate
+identically everywhere.
+
+Also considered: publishing the volatile field names as a constant and leaving
+hosts to normalise, which answers the complaint that the list is invisible to
+the shard owning it, at almost no cost. Rejected because every host then writes
+the same JSON walker, a flat list cannot say "this field, in this response
+shape", and a host that forgets to re-read it gets a silent mismatch instead of
+a compile error.
+
 ### Calling by name
 
 `Tools#call(name, arguments)` exists because the schemas describe half a
@@ -845,6 +902,12 @@ Next, in rough order:
 2. **TOCTOU**, recorded twice above as acceptable for a trusted workspace. That
    assessment was made when the shard was read-only, and writes change it.
 3. `ls` with metadata, and `tree` with a depth cap.
+4. **A way to run with no time budget.** `Walk::Settings#timeout` is a
+   non-nilable `Time::Span` and the config's `timeout_seconds` a non-nilable
+   `Float64`, so a host told to bound by work rather than by clock can only set
+   a large number and hope. Worth doing on its own merits rather than folding
+   it into `reproducible`; `0` meaning none is the cheaper spelling, nilable
+   the more honest one.
 
 The text tools shipped **stateless first**. The scope documents assume a
 session-scoped read log, which is what makes `write_text_file` refuse to overwrite a file the
