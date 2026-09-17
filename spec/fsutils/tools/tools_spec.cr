@@ -18,6 +18,12 @@ private def with_tools(config = FsUtils::Tools::Config.new, &)
   end
 end
 
+private def reproducible_config : FsUtils::Tools::Config
+  config = FsUtils::Tools::Config.new
+  config.reproducible = true
+  config
+end
+
 private def parse(response) : JSON::Any
   JSON.parse(response.to_json)
 end
@@ -259,6 +265,38 @@ describe FsUtils::Tools do
       FsUtils::Tools::Definitions.grep.name.should eq "search_file_contents"
       grep = JSON.parse(FsUtils::Tools::Definitions.grep.schema)
       grep["required"].as_a.map(&.as_s).should eq ["pattern"]
+    end
+  end
+
+  # The guarantee, not the field list: two calls against an unchanged tree
+  # must serialise to the same bytes.
+  describe "with a reproducible configuration" do
+    it "omits the fields reporting when and where a call ran" do
+      with_tools(reproducible_config) do |tools, _, _|
+        found = parse(tools.find(name: ["*.cr"]))
+        found["summary"].as_h.has_key?("elapsed_ms").should be_false
+        found["results"][0].as_h.has_key?("modified").should be_false
+        found["summary"]["matches"].as_i.should eq 2
+
+        grepped = parse(tools.grep(pattern: "TODO"))
+        grepped["summary"].as_h.has_key?("elapsed_ms").should be_false
+        grepped["summary"]["matches"].as_i.should eq 1
+      end
+    end
+
+    it "repeats byte for byte" do
+      with_tools(reproducible_config) do |tools, _, _|
+        tools.find(name: ["*.cr"]).to_json.should eq tools.find(name: ["*.cr"]).to_json
+        tools.grep(pattern: "TODO").to_json.should eq tools.grep(pattern: "TODO").to_json
+      end
+    end
+
+    it "reports both fields when unset" do
+      with_tools do |tools, _, _|
+        json = parse(tools.find(name: ["*.cr"]))
+        json["summary"]["elapsed_ms"].as_f?.should_not be_nil
+        json["results"][0]["modified"].as_s.should_not be_empty
+      end
     end
   end
 end
