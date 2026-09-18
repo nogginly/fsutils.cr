@@ -153,6 +153,36 @@ module FsUtils
         end
       end
 
+      # Where output too large to return inline is kept.
+      #
+      # `dir` is relative to the workspace root and hidden by default, and
+      # `find` and `grep` skip it, so a tool's own spilled output does not
+      # turn up in that tool's own later searches.
+      class Scratch
+        include YAML::Serializable
+        include JSON::Serializable
+
+        property dir : String = FsUtils::Tools::Scratch::DEFAULT_DIR
+        property excerpt_chars : Int32 = FsUtils::Tools::Scratch::DEFAULT_EXCERPT_CHARS
+        property max_headings : Int32 = FsUtils::Tools::Scratch::DEFAULT_MAX_HEADINGS
+
+        def initialize
+        end
+
+        # The threshold between inlining and spilling is `max_output_bytes`
+        # rather than a number of its own: "how much may a response be" is
+        # one question, already answered once, and a second answer would let
+        # a page spill at a size a search would inline.
+        def to_settings(max_inline_bytes : Int32) : FsUtils::Tools::Scratch::Settings
+          settings = FsUtils::Tools::Scratch::Settings.new
+          settings.dir = dir
+          settings.max_inline_bytes = max_inline_bytes
+          settings.excerpt_chars = excerpt_chars
+          settings.max_headings = max_headings
+          settings
+        end
+      end
+
       # Serialised bytes beyond this are dropped from any response.
       property max_output_bytes : Int32 = DEFAULT_MAX_OUTPUT_BYTES
 
@@ -184,6 +214,7 @@ module FsUtils
       property read : Read = Read.new
       property write : Write = Write.new
       property replace : Replace = Replace.new
+      property scratch : Scratch = Scratch.new
 
       def initialize
       end
@@ -199,6 +230,7 @@ module FsUtils
         read.to_settings.validate!
         write.to_settings.validate!
         replace.to_settings.validate!
+        scratch.to_settings(max_output_bytes).validate!
       end
     end
   end
