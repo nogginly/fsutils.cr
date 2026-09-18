@@ -39,13 +39,20 @@ module FsUtils
       HEADING_PREFIX = {"h1" => "# ", "h2" => "## ", "h3" => "### ",
                         "h4" => "#### ", "h5" => "##### ", "h6" => "###### "}
 
-      # Subtrees dropped entirely: neither their markup nor their text
-      # content is rendered. header/nav/footer/aside is a blunt heuristic for
-      # page chrome -- it will occasionally strip a legitimate <header> used
-      # for an article's own title. Swap for a text-density heuristic if that
+      # Subtrees dropped entirely: neither their markup nor their text content
+      # is rendered. header/footer/aside is a blunt heuristic for page chrome
+      # -- it will occasionally strip a legitimate <header> used for an
+      # article's own title/byline. Swap for a text-density heuristic if that
       # turns out to matter in practice.
+      #
+      # nav is deliberately NOT in this set: on documentation sites a <nav> is
+      # frequently the page's table of contents, nested inside <main> rather
+      # than a sibling of it, so root-selection alone doesn't exclude it.
+      # Since this converter feeds an agent that follows links to find more
+      # information, dropping that structure is a correctness problem, not
+      # just noise.
       STRIP_TAGS = {"script", "style", "head", "noscript", "svg", "form",
-                    "button", "nav", "header", "footer", "aside", "meta", "link"}
+                    "button", "header", "footer", "aside", "meta", "link"}
 
       # A `Set` rather than a tuple because this is asked once per element of
       # every table cell, which is the one lookup here that is hot.
