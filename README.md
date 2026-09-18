@@ -1,6 +1,6 @@
 # FsUtils.cr
 
-File system utilities (like `grep` and `find`) as Crystal helper classes for use without running shell commands.
+File system utilities (like `grep` and `find`) as Crystal helper classes for use without running shell commands, and an agent-facing tool layer over them.
 
 ## AI Use
 
@@ -122,9 +122,10 @@ tools.find(name: ["*.cr"], type: "file").to_json
 tools.read(path: "src/find.cr", offset: 12, limit: 40).to_json
 tools.write(path: "src/out.cr", content: "puts 1\n").to_json
 tools.text_replace(path: "src/find.cr", old_string: "a", new_string: "b").to_json
+tools.fetch(url: "https://example.com/docs").to_json
 ```
 
-Five tools, each with its own result shape but the same four common fields, so
+Six tools, each with its own result shape but the same four common fields, so
 a model learns the envelope once and the specifics per tool.
 
 A host decides what those tools are allowed to do by handing `Tools.new` a
@@ -140,6 +141,14 @@ tool_config:
     max_depth: 10
   write:
     max_content_bytes: 1048576
+  scratch:
+    dir: ".agent-scratch"
+  fetch:
+    max_page_bytes: 8388608
+    max_markdown_bytes: 4194304
+    allow_private_hosts: false
+    allowed_hosts: null
+    denied_hosts: []
 ```
 
 ```crystal
@@ -214,7 +223,7 @@ accept, a value of the wrong type, a missing required one — comes back as a
 normal error response in the usual envelope. Nothing is coerced: a
 `max_matches` of `"200"` is refused rather than read as 200.
 
-The five typed methods are unchanged and remain the API for Crystal callers.
+The six typed methods are unchanged and remain the API for Crystal callers.
 
 `Tools#definitions` publishes each tool as its three parts — `name`,
 `description` and `schema` — so a host can register them without hand-writing a
@@ -225,6 +234,58 @@ tools.definitions.each do |tool|
   host.register(tool.name, tool.description, tool.schema)
 end
 ```
+
+### Fetching a web page
+
+`fetch_web_page` fetches an HTML page and returns it as Markdown. It is the one
+tool here that leaves the machine, and the only one the sandbox cannot protect,
+so it carries a guard of its own.
+
+```crystal
+response = tools.fetch(url: "https://example.com/docs")
+response.content # the Markdown, when the page is short
+response.path    # where it was written, when it is not
+```
+
+**Short pages come back whole; long ones are written to a file and described.**
+A reference page converted in full can fill a small model's context on its own,
+so past `max_output_bytes` the Markdown is written into the scratch directory
+and the response carries `path`, `lines`, `excerpt` and `toc` instead of
+`content`. Each `toc` entry gives a heading with the lines its section spans,
+which are what `read_text_file` takes as `offset` and `limit` — so the index
+points into a tool the model already has rather than adding a new one.
+
+A stored file opens with YAML front matter naming the page it came from. Links
+in the Markdown are root-relative where they point at the same site, which
+saves a great deal on a page that links within itself and would be unresolvable
+without knowing the origin. The front matter carries no timestamp, so the same
+page fetched twice writes the same bytes.
+
+**The scratch directory lives inside the workspace root**, because a path the
+model cannot read back is no use to it. It is hidden, and `find` and `grep`
+skip it, so a tool's own spilled output never turns up in that tool's own later
+searches. Nothing prunes it; how long a page is worth keeping is the host's
+question, not this shard's.
+
+**Three bounds apply in turn, and none substitutes for another.** The fetcher
+stops reading past `max_page_bytes`, counted from the response body rather than
+from `Content-Length`, which is absent under chunked encoding and understates a
+compressed body. The converter stops writing past `max_markdown_bytes` and cuts
+back to a block boundary, so a truncated page never ends inside a fence or a
+table. What survives is returned inline only if it fits `max_output_bytes`. A
+page of boilerplate shrinks under conversion; a page of dense tables grows.
+
+**Where it may go is checked by resolving, then comparing** — the sandbox's own
+rule, applied to a host instead of a path. The name is checked against
+`allowed_hosts` and `denied_hosts`, then resolved, and every address it answers
+with is checked against the loopback, link-local and private ranges. A redirect
+is a new URL and faces the same check, because a permitted host answering with
+a redirect to `localhost` is the ordinary way an allowlist is defeated.
+
+`allowed_hosts` is null when there is no allowlist. An empty array is an
+allowlist naming nothing, and permits nothing: a list means exactly what it
+contains. `denied_hosts` is the same rule read the other way, so an empty
+denylist forbids nothing.
 
 ### Responses that repeat
 
@@ -263,7 +324,7 @@ Tool names are fixed. There is no prefixing hook, because the descriptions
 cross-reference each other by name and a prefix applied naively would point a
 model at tools the host never registered.
 
-See [DESIGN](./DESIGN.md) for the reasoning, and `samples/` for four small
+See [DESIGN](./DESIGN.md) for the reasoning, and `samples/` for five small
 command-line tools built on the helpers:
 
 ```sh
@@ -275,6 +336,9 @@ ops build-debug
 
 # Preview a rename across the tree; nothing is written without --write.
 ./bin/debug/fsu-rename UnknownTool MissingTool src -t cr
+
+# Fetch a page as Markdown, or just its headings.
+./bin/debug/fsu-fetch https://example.com/docs --outline
 ```
 
 `fsu-rename` is the one worth reading. It composes two helpers — `Grep` in

@@ -27,12 +27,13 @@ Command                        |Description
 is a different test: specs assert behaviour, but only a caller reveals whether
 the API is pleasant to hold.
 
-Binary      |Helper             |Demonstrates                                                           
-------------|-------------------|-----------------------------------------------------------------------
-`fsu-find`  |`Find`             |Bounded breadth-first search, and why a walk stopped                   
-`fsu-grep`  |`Grep`             |Content search, per-file and per-directory caps, `--files-with-matches`
-`fsu-cat`   |`Reader`           |Line ranges, and telling a truncated read from a short file            
-`fsu-rename`|`Grep` + `Replacer`|Composing two helpers; diffs previewed before anything is written      
+Binary      |Helper                      |Demonstrates                                                               
+------------|----------------------------|---------------------------------------------------------------------------
+`fsu-find`  |`Find`                      |Bounded breadth-first search, and why a walk stopped                       
+`fsu-grep`  |`Grep`                      |Content search, per-file and per-directory caps, `--files-with-matches`    
+`fsu-cat`   |`Reader`                    |Line ranges, and telling a truncated read from a short file                
+`fsu-rename`|`Grep` + `Replacer`         |Composing two helpers; diffs previewed before anything is written          
+`fsu-fetch` |`Fetcher` + `HtmlToMarkdown`|Real pages, which no fixture stands in for; `--outline` prints the headings
 
 Each prints its result to stdout and its report to stderr, so `fsu-grep TODO src > hits.txt`
 keeps the output clean while leaving the diagnostics visible.

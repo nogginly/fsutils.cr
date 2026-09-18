@@ -19,9 +19,15 @@ FsUtils::Tools                              # sandboxed, buffered, JSON, never r
       │     Walker(P)                       # one bounded breadth-first traversal
       │     Walk                            # Entry, Report, Policy
       │
-      └── Reader  Writer  Replacer          # text: whole-file, typed, may raise
-            └────────┬────────┘
-            Text                            # binary sniffing, line clamping
+      ├── Reader  Writer  Replacer          # text: whole-file, typed, may raise
+      │     └────────┬────────┘
+      │     Text                            # binary sniffing, line clamping
+      │
+      ├── Web::Fetcher  Web::HtmlToMarkdown # the one tool that leaves the machine
+      │     └── Web::HostPolicy             # resolve, then compare -- for hosts
+      │
+      └── Scratch                           # results too large to return inline
+            └── Outline                     # Markdown headings -> line ranges
 
 FsUtils::Error / ErrorCode                  # the failure vocabulary, shared by both
 ```
@@ -517,9 +523,9 @@ Arguments are flat and JSON-friendly — strings, ints, string arrays; no
 place. Enum-ish arguments (`type`, `mode`) are taken as strings and parsed here,
 so an unknown value becomes an error code rather than an exception.
 
-There are five: `find` and `grep` for searching, `read`, `write` and
-`text_replace` for text. Each method returns its own response type, not a
-serialised string. A host writes
+There are six: `find` and `grep` for searching, `read`, `write` and
+`text_replace` for text, and `fetch` for a web page. Each method returns its own
+response type, not a serialised string. A host writes
 `.to_json`; a Crystal caller can read `ok?` without re-parsing what was just
 serialised. Nil fields are **omitted** rather than emitted as `null`, so a clean
 result is a small one and a host can test for a key's presence.
@@ -776,6 +782,86 @@ the same JSON walker, a flat list cannot say "this field, in this response
 shape", and a host that forgets to re-read it gets a silent mismatch instead of
 a compile error.
 
+### Fetching a web page
+
+`fetch_web_page` is the one tool here that leaves the machine, and the reason
+it lives in a shard called "file system utilities" wants stating.
+
+The alternative was a second shard depending on this one and contributing its
+tools to the same registry. That is architecturally cleaner and was rejected
+for now, because contributing tools means `Names`, `Definitions`, `ACCEPTED`
+and the dispatch all stop being closed sets -- the opposite of the change that
+made a missing dispatch branch a crash rather than a wrong answer. At a third
+contributor it becomes the right answer. Until then the cost is one runtime
+dependency, `html5`, for consumers who only wanted `grep`.
+
+What it does bring is a second confinement problem, and the useful observation
+is that it has the same shape as the first. The sandbox rule is **resolve, then
+compare**, never validate the string. For a URL: check the name against the
+lists, resolve it, and check every address it answers with. A name under the
+caller's control can point anywhere, and answering with several addresses of
+which one is loopback is the ordinary arrangement. A redirect is a new URL and
+faces the whole check again, which is why redirects are followed here rather
+than by `HTTP::Client` -- its own redirect following would never show us the
+intermediate address, and a permitted host redirecting to `169.254.169.254` is
+the attack this guards.
+
+**Three bounds, and none substitutes for another.** `max_page_bytes` stops the
+read, counted from the response body rather than from `Content-Length`, which
+is absent under chunked encoding and understates a compressed body that
+`HTTP::Client` inflates on the way past -- so a two megabyte response can be a
+two gigabyte read and the only honest place to count is the read itself.
+`max_markdown_bytes` stops the conversion, cutting back to the last blank line
+so a truncated page never ends inside a fence or a table row. `max_output_bytes`
+decides inline against spilled. A page of boilerplate shrinks under conversion
+and a page of dense tables grows, so no one of these implies the others.
+
+**Large results are written, not truncated.** A reference page converted in
+full can fill a small model's context on its own, and returning the first
+thirty kilobytes of one would be worse than useless -- it looks complete. So
+past `max_output_bytes` the Markdown goes into the scratch area and the
+response describes it: `path`, `lines`, `excerpt`, and a `toc` of headings with
+the lines each section spans. Those line numbers are what `read_text_file`
+takes as `offset` and `limit`, which is the point: the index addresses a tool
+the model already has rather than adding a capability to learn.
+
+`Scratch` is deliberately general, and `fetch_web_page` is its first caller
+rather than its owner. "Result too large to return, so write it and describe
+it" is what `ls` and `tree` will want, and what a `grep` over a large tree
+might. Building it inside the fetch tool would have meant the second such tool
+copying it.
+
+**The scratch directory is inside the workspace root**, because a path the
+model cannot read back is no use to it -- and that means it is also inside
+every later search, so it is hidden and added to `skip_dirs` for `find` and
+`grep`. The list is *replaced* rather than appended to: `Settings#copy` is
+shallow and the default skip list is a shared constant, so `<<` would have
+poisoned every search in the process.
+
+**Stored files carry front matter.** The response knows where content came
+from, but the file outlives the response, and a caller reading it back three
+turns later has only the file. Links in the Markdown are root-relative where
+they point at the same site -- a large saving on a page that links within
+itself, and unresolvable without the origin. So the origin goes in the file. It
+is YAML front matter rather than a `Source:` heading, so that `Outline` does
+not mistake it for a heading of the page's own; and it carries no timestamp,
+because a clock would make the same fetch produce different bytes and break
+`reproducible` on the first tool to spill.
+
+Filenames are derived from the URL -- a slug and a short digest -- so a
+re-fetch overwrites its own previous copy. That makes the scratch area a cache
+by accident and keeps it reproducible on purpose. Nothing prunes it: eviction
+wants an mtime scan, which is exactly the volatile input `reproducible` exists
+to avoid, and how long a page is worth keeping is the host's question.
+
+**`allowed_hosts` is nilable and `denied_hosts` is not.** A list means exactly
+what it contains, and nil means there is no list. An empty allowlist therefore
+permits nothing, which is a usable kill switch; an empty denylist forbids
+nothing. The asymmetry is the literal reading of both, not an oversight. The
+empty-allowlist refusal carries its own suggestion, because it is the one
+refusal a different URL cannot fix and the model should be told to stop rather
+than to retry.
+
 ### Calling by name
 
 `Tools#call(name, arguments)` exists because the schemas describe half a
@@ -894,14 +980,19 @@ small change; it is simply not one that has been made.
 ## Roadmap
 
 Done: the `Walker` extraction, `Find` and `Grep` rebased onto it, `Tools` over
-both, and the three text tools over `Reader`, `Writer` and `Replacer`.
+both, the three text tools over `Reader`, `Writer` and `Replacer`, and
+`fetch_web_page` over `Web::Fetcher`, `Web::HtmlToMarkdown` and `Scratch`.
 
 Next, in rough order:
 
 1. **The session read log**, below.
 2. **TOCTOU**, recorded twice above as acceptable for a trusted workspace. That
    assessment was made when the shard was read-only, and writes change it.
-3. `ls` with metadata, and `tree` with a depth cap.
+3. `ls` with metadata, and `tree` with a depth cap. Both are now cheaper than
+   this list once implied: adding a name is four edits -- `Names`,
+   `Definitions`, the dispatch case and `Response` -- and a forgotten dispatch
+   branch is a crash rather than a wrong answer. Both will also want `Scratch`,
+   which already exists.
 4. **A way to run with no time budget.** `Walk::Settings#timeout` is a
    non-nilable `Time::Span` and the config's `timeout_seconds` a non-nilable
    `Float64`, so a host told to bound by work rather than by clock can only set
