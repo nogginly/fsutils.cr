@@ -153,6 +153,47 @@ module FsUtils
         end
       end
 
+      # Bounds `fetch_web_page`, and guards where it may go.
+      #
+      # `allowed_hosts` is nil when there is no allowlist. An empty array is
+      # an allowlist naming nothing, which permits nothing -- a list means
+      # exactly what it contains. `denied_hosts` is never nil for the same
+      # reason read the other way: an empty denylist forbids nothing.
+      class Fetch
+        include YAML::Serializable
+        include JSON::Serializable
+
+        property max_page_bytes : Int64 = FsUtils::Web::Fetcher::DEFAULT_MAX_PAGE_BYTES.to_i64
+        property max_markdown_bytes : Int64 = 4_194_304_i64
+        property timeout_seconds : Float64 = 20.0
+        property max_redirects : Int32 = FsUtils::Web::Fetcher::DEFAULT_MAX_REDIRECTS
+        property user_agent : String = FsUtils::Web::Fetcher::DEFAULT_USER_AGENT
+        property? allow_private_hosts : Bool = false
+        property allowed_hosts : Array(String)? = nil
+        property denied_hosts : Array(String) = [] of String
+
+        def initialize
+        end
+
+        def to_settings : FsUtils::Web::Fetcher::Settings
+          settings = FsUtils::Web::Fetcher::Settings.new
+          settings.max_page_bytes = max_page_bytes
+          settings.max_redirects = max_redirects
+          settings.timeout = timeout_seconds.seconds
+          settings.user_agent = user_agent
+          settings.host_policy = host_policy
+          settings
+        end
+
+        private def host_policy : FsUtils::Web::HostPolicy::Settings
+          policy = FsUtils::Web::HostPolicy::Settings.new
+          policy.allowed_hosts = allowed_hosts
+          policy.denied_hosts = denied_hosts
+          policy.allow_private_hosts = allow_private_hosts?
+          policy
+        end
+      end
+
       # Where output too large to return inline is kept.
       #
       # `dir` is relative to the workspace root and hidden by default, and
@@ -215,6 +256,7 @@ module FsUtils
       property write : Write = Write.new
       property replace : Replace = Replace.new
       property scratch : Scratch = Scratch.new
+      property fetch : Fetch = Fetch.new
 
       def initialize
       end
@@ -231,6 +273,8 @@ module FsUtils
         write.to_settings.validate!
         replace.to_settings.validate!
         scratch.to_settings(max_output_bytes).validate!
+        fetch.to_settings.validate!
+        raise ArgumentError.new("fetch.max_markdown_bytes must be positive") if fetch.max_markdown_bytes < 1
       end
     end
   end

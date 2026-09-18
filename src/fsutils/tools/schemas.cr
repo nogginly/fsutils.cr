@@ -13,8 +13,9 @@ module FsUtils
       READ    = "read_text_file"
       WRITE   = "write_text_file"
       REPLACE = "text_replace"
+      FETCH   = "fetch_web_page"
 
-      ALL = [FIND, GREP, READ, WRITE, REPLACE]
+      ALL = [FIND, GREP, READ, WRITE, REPLACE, FETCH]
     end
 
     # One tool, as the three parts a host actually needs.
@@ -59,7 +60,7 @@ module FsUtils
 
       # Every tool, in a stable order.
       def all(config : Config = Config.new) : Array(Definition)
-        [find(config), grep(config), read(config), write(config), replace(config)]
+        [find(config), grep(config), read(config), write(config), replace(config), fetch(config)]
       end
 
       # The `find` tool, as this configuration bounds it.
@@ -283,6 +284,26 @@ module FsUtils
                 }
               },
               "required": ["path", "old_string", "new_string"]
+            }
+            JSON
+        )
+      end
+
+      # The `fetch_web_page` tool, as this configuration bounds it.
+      def fetch(config : Config = Config.new) : Definition
+        Definition.new(
+          name: Names::FETCH,
+          description: "Fetch a web page and return it as Markdown. A short page is returned in `content`. A longer one is written to a file in the workspace and described instead: `path` is where it went, `excerpt` is its opening, and `toc` lists its headings with the line each section starts and ends at -- pass those to #{Names::READ} as `offset` and `limit` to read one section without reading the whole file. A stored file opens with a front matter block naming the page it came from, because links in the Markdown are relative to that address. Check `truncated` and `notice`: a page over #{config.fetch.max_markdown_bytes} bytes of Markdown is cut at a block boundary. Only HTML pages are converted, and only public http and https addresses may be fetched.",
+          schema: <<-JSON
+            {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "Absolute http or https URL of the page to fetch."
+                }
+              },
+              "required": ["url"]
             }
             JSON
         )

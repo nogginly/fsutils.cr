@@ -7,6 +7,7 @@ require "./tools/scratch"
 require "./tools/read"
 require "./tools/write"
 require "./tools/replace"
+require "./tools/fetch"
 require "./tools/schemas"
 require "./tools/call"
 

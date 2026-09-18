@@ -28,7 +28,8 @@ module FsUtils
     # NOTE: this union grows with every tool added. `ls` and `tree` are on the
     # roadmap. An exhaustive `case` over it is not a stable contract.
     alias Response = SearchResponse(FindResult) | SearchResponse(GrepResult) |
-                     ReadResponse | WriteResponse | ReplaceResponse | ErrorResponse
+                     ReadResponse | WriteResponse | ReplaceResponse | FetchResponse |
+                     ErrorResponse
 
     # A caller's arguments, checked against what the tool actually accepts.
     #
@@ -181,6 +182,7 @@ module FsUtils
       when Names::READ    then call_read(args)
       when Names::WRITE   then call_write(args)
       when Names::REPLACE then call_replace(args)
+      when Names::FETCH   then call_fetch(args)
       else
         # Unreachable while the guard above and this case agree on
         # `Names::ALL`. Explicit so that the day they disagree -- a tool
@@ -242,6 +244,10 @@ module FsUtils
         content: args.string("content"),
         overwrite: args.bool("overwrite", false),
       )
+    end
+
+    private def call_fetch(args : Arguments) : FetchResponse
+      fetch(url: args.string("url"))
     end
 
     private def call_replace(args : Arguments) : ReplaceResponse
