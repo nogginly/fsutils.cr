@@ -138,12 +138,8 @@ module FsUtils
         true
       end
 
-      # A truncated document is cut back to its last blank line, so it ends
-      # at a block boundary rather than inside a fence or a table.
       private def finish(markdown : String, truncated : Bool) : String
-        return markdown.strip unless truncated
-        boundary = markdown.rindex("\n\n")
-        (boundary ? markdown[0, boundary] : markdown).strip
+        truncated ? Text.trim_to_block(markdown) : markdown.strip
       end
 
       private def walk_children(node : HTML5::Node, md : IO, inside_pre : Bool)

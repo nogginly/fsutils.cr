@@ -25,6 +25,12 @@ private def respond(context : HTTP::Server::Context) : Nil
     response.print long_page
   when "/titled"
     response.print "<html><head><title>A &amp; B: the page</title></head><body><p>Body.</p></body></html>"
+  when "/md"
+    response.content_type = "text/markdown"
+    response.print "# Served\n\nAlready Markdown, with a [link](/other).\n"
+  when "/bigmd"
+    response.content_type = "text/markdown"
+    response.print String.build { |io| 8.times { |index| io << "## Part " << index << "\n\n" << ("word " * 200) << "\n\n" } }
   when "/plain"
     response.content_type = "text/plain"
     response.print "not html"
@@ -140,6 +146,48 @@ describe "FsUtils::Tools#fetch" do
 
           matched = tools.grep(pattern: "Section", include_hidden: true)
           (matched.results.try(&.size) || 0).should eq 0
+        end
+      end
+    end
+  end
+
+  # A site that already speaks Markdown has done the work; the tool's job is
+  # then to apply the same bounds to it, not to convert it twice.
+  describe "a site that serves Markdown" do
+    it "uses what it was given" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.fetch("#{base}/md")
+
+          response.ok?.should be_true
+          response.content.to_s.should contain "[link](/other)"
+        end
+      end
+    end
+
+    it "takes its title from the first top-level heading" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch("#{base}/md").title.should eq "Served"
+        end
+      end
+    end
+
+    # Otherwise max_markdown_bytes would bound a converted page and nothing
+    # at all for a served one.
+    it "is bounded like a converted page" do
+      with_server do |base|
+        with_tools do |tools, root|
+          config = FsUtils::Tools::Config.new
+          config.fetch.allow_private_hosts = true
+          config.fetch.max_markdown_bytes = 400_i64
+          bounded = FsUtils::Tools.new(root, config)
+
+          response = bounded.fetch("#{base}/bigmd")
+
+          response.truncated.should be_true
+          response.bytes.not_nil!.should be <= 400
+          response.notice.to_s.should contain "block boundary"
         end
       end
     end

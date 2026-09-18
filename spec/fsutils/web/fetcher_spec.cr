@@ -28,9 +28,15 @@ private def respond(context : HTTP::Server::Context) : Nil
   when "/big"
     response.content_type = "text/html"
     response.print "<html><body>#{"x" * 64_000}</body></html>"
+  when "/md"
+    response.content_type = "text/markdown; charset=utf-8"
+    response.print "# Served\n\nAlready Markdown.\n"
   when "/plain"
     response.content_type = "text/plain"
     response.print "not html"
+  when "/echo-accept"
+    response.content_type = "text/html"
+    response.print "<html><body>#{context.request.headers["Accept"]?}</body></html>"
   when "/untyped"
     response.print "<html><body>no content type</body></html>"
   when "/missing"
@@ -63,9 +69,9 @@ describe FsUtils::Web::Fetcher do
       page = fetcher.fetch("#{base}/small")
 
       page.status.should eq 200
-      page.html.should contain "<h1>Small</h1>"
+      page.body.should contain "<h1>Small</h1>"
       page.content_type.should eq "text/html"
-      page.bytes.should eq page.html.bytesize
+      page.bytes.should eq page.body.bytesize
     end
   end
 
@@ -76,7 +82,7 @@ describe FsUtils::Web::Fetcher do
       page = fetcher.fetch("#{base}/redirect")
 
       page.url.should end_with "/small"
-      page.html.should contain "Small"
+      page.body.should contain "Small"
     end
   end
 
@@ -106,7 +112,29 @@ describe FsUtils::Web::Fetcher do
     end
   end
 
-  it "refuses content it does not convert" do
+  # Documentation sites increasingly answer the Accept header this way.
+  it "accepts Markdown and says so" do
+    with_server do |base|
+      page = fetcher.fetch("#{base}/md")
+
+      page.markdown?.should be_true
+      page.body.should contain "# Served"
+    end
+  end
+
+  it "does not treat an HTML page as Markdown" do
+    with_server do |base|
+      fetcher.fetch("#{base}/small").markdown?.should be_false
+    end
+  end
+
+  it "asks for Markdown ahead of HTML" do
+    with_server do |base|
+      fetcher.fetch("#{base}/echo-accept").body.should contain "text/markdown"
+    end
+  end
+
+  it "refuses content it does not read" do
     with_server do |base|
       error = expect_raises(FsUtils::UnsupportedContentTypeError, /text\/plain/) do
         fetcher.fetch("#{base}/plain")
@@ -118,7 +146,7 @@ describe FsUtils::Web::Fetcher do
   # An absent type is not a wrong type, and servers omit it.
   it "accepts a response with no content type" do
     with_server do |base|
-      fetcher.fetch("#{base}/untyped").html.should contain "no content type"
+      fetcher.fetch("#{base}/untyped").body.should contain "no content type"
     end
   end
 

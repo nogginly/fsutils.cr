@@ -46,7 +46,7 @@ begin
   page = fetcher.fetch(target)
   markdown = IO::Memory.new
   result = FsUtils::Web::HtmlToMarkdown.translate(
-    IO::Memory.new(page.html), markdown,
+    IO::Memory.new(page.body), markdown,
     base_url: page.url,
     max_bytes: max_markdown_bytes.try(&.to_i64))
 

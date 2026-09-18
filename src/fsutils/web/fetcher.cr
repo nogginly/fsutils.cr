@@ -32,6 +32,16 @@ module FsUtils
 
       private HTML_TYPES = {"text/html", "application/xhtml+xml"}
 
+      # Documentation sites increasingly answer with Markdown when asked, and
+      # it is what this is trying to produce, so ask for it first. HTML keeps
+      # a high q rather than being dropped: a server that honours Accept and
+      # has no Markdown should send its page, not a 406.
+      private ACCEPT = "text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.8"
+
+      # Covers text/markdown and text/x-markdown. Deliberately not text/plain,
+      # which is what a great many things that are not Markdown are served as.
+      private MARKDOWN_SUFFIX = "/markdown"
+
       private REDIRECT_CODES = {301, 302, 303, 307, 308}
 
       private UTF8_NAMES = {"utf-8", "utf8", "us-ascii", "ascii"}
@@ -39,14 +49,21 @@ module FsUtils
       # What was fetched, after any redirects.
       #
       # `url` is the address the content actually came from, which is what
-      # relative links in `html` resolve against and what a caller should
+      # relative links in `body` resolve against and what a caller should
       # report rather than the address it asked for.
+      #
+      # `body` is HTML unless `markdown?`, in which case the server answered
+      # the Accept header with Markdown and there is nothing to convert.
       record Page,
         url : String,
         status : Int32,
         content_type : String?,
-        html : String,
-        bytes : Int64
+        body : String,
+        bytes : Int64 do
+        def markdown? : Bool
+          !!content_type.try(&.downcase.ends_with?(MARKDOWN_SUFFIX))
+        end
+      end
 
       private record Redirect, location : String
 
@@ -156,15 +173,15 @@ module FsUtils
       private def headers : HTTP::Headers
         HTTP::Headers{
           "User-Agent" => @settings.user_agent,
-          "Accept"     => "text/html,application/xhtml+xml",
+          "Accept"     => ACCEPT,
         }
       end
 
       private def page(uri : URI, response : HTTP::Client::Response) : Page
         check_status(uri, response)
         check_type(uri, response)
-        html, bytes = read_body(uri, response)
-        Page.new(uri.to_s, response.status_code, response.content_type, html, bytes)
+        body, bytes = read_body(uri, response)
+        Page.new(uri.to_s, response.status_code, response.content_type, body, bytes)
       end
 
       private def check_status(uri : URI, response : HTTP::Client::Response) : Nil
@@ -176,10 +193,10 @@ module FsUtils
 
       private def check_type(uri : URI, response : HTTP::Client::Response) : Nil
         type = response.content_type.try(&.downcase)
-        return if type.nil? || HTML_TYPES.includes?(type)
+        return if type.nil? || HTML_TYPES.includes?(type) || type.ends_with?(MARKDOWN_SUFFIX)
         raise UnsupportedContentTypeError.new(
-          "#{uri} answered #{type}, which this tool does not convert",
-          "This tool reads HTML pages. Fetch an HTML page, or handle this content another way.")
+          "#{uri} answered #{type}, which this tool does not read",
+          "This tool reads HTML and Markdown pages. Fetch one of those, or handle this content another way.")
       end
 
       # Reads in chunks so the cap is reached before the memory is.

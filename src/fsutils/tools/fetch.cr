@@ -84,8 +84,8 @@ module FsUtils
     def fetch(url : String) : FetchResponse
       started = Time.instant
       page = Web::Fetcher.new(@config.fetch.to_settings).fetch(url)
-      markdown = convert(page)
-      title = title_of(page.html)
+      markdown = markdown_for(page)
+      title = title_of(page, markdown)
       held = @scratch.hold(page.url, markdown.text, front_matter(page, title, markdown.truncated?))
 
       respond(page, title, markdown, held, Time.instant - started)
@@ -102,21 +102,38 @@ module FsUtils
 
     private TITLE_TAG = /<title[^>]*>(.*?)<\/title>/im
 
+    # A server that answered the Accept header with Markdown has already done
+    # the work; the bound still applies, or `max_markdown_bytes` would mean
+    # one thing for a page we converted and nothing at all for a page we did
+    # not. Links are left as they are: rewriting Markdown links is a second
+    # parser, and the front matter names the address they resolve against.
+    private def markdown_for(page : Web::Fetcher::Page) : Converted
+      return convert(page) unless page.markdown?
+      text, truncated = Text.block_prefix(page.body, @config.fetch.max_markdown_bytes)
+      Converted.new(text, truncated)
+    end
+
     private def convert(page : Web::Fetcher::Page) : Converted
       output = IO::Memory.new
       result = Web::HtmlToMarkdown.translate(
-        IO::Memory.new(page.html), output,
+        IO::Memory.new(page.body), output,
         base_url: page.url,
         max_bytes: @config.fetch.max_markdown_bytes)
       Converted.new(output.to_s, result.truncated?)
     end
 
-    # Read from the raw HTML rather than the converted Markdown, because the
-    # converter drops <head> along with the rest of the page's chrome.
-    private def title_of(html : String) : String?
-      return unless match = TITLE_TAG.match(html)
+    # From <title> for HTML, read from the raw page because the converter
+    # drops <head> with the rest of the chrome. A Markdown document has no
+    # head, so its first top-level heading stands in.
+    private def title_of(page : Web::Fetcher::Page, markdown : Converted) : String?
+      return first_heading(markdown.text) if page.markdown?
+      return unless match = TITLE_TAG.match(page.body)
       title = HTML.unescape(match[1]).strip
       title.empty? ? nil : title
+    end
+
+    private def first_heading(text : String) : String?
+      Outline.of(text).headings.find(&.level.==(1)).try(&.title)
     end
 
     private def front_matter(page : Web::Fetcher::Page, title : String?, truncated : Bool) : Hash(String, String)
