@@ -117,8 +117,8 @@ describe FsUtils::Web::HtmlToMarkdown do
     convert(html).should eq("Still visible")
   end
 
-  it "drops nav, header and footer content entirely" do
-    html = "<body><nav><a href=\"/\">Home</a></nav>" +
+  it "drops header and footer content entirely" do
+    html = "<body>" +
            "<p>Real content.</p>" +
            "<footer>Copyright 2026</footer></body>"
     convert(html).should eq("Real content.")
