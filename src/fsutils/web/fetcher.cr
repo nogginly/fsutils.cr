@@ -153,27 +153,47 @@ module FsUtils
           "Try the address the redirects were leading to, if it is known.")
       end
 
-      # Builds the request and calls `exec` directly rather than the
-      # block-taking `get` overload, whose body is `exec(...) { |r| yield r }`.
-      # A library that redefines `exec` to *capture* its block -- recording or
-      # replaying HTTP, which is how a network tool gets tested -- turns that
-      # `yield` into a compile error inside Crystal's own `client.cr`, in any
-      # project depending on both. Anything that reinstates `get` with a block
-      # will reintroduce the failure, so leave it. This shard's suite cannot
-      # catch it: the redefinition only ever arrives from a consumer.
+      # Two constraints here, both from the same source: a library may reopen
+      # `HTTP::Client` and redefine `exec` to *capture* its block, which is
+      # what recording or replaying HTTP requires, and which is how a consumer
+      # tests against a network tool.
+      #
+      # 1. Call `exec` directly, never the block-taking `get`, whose body is
+      #    `exec(...) { |r| yield r }`. Handing a `yield` to a capturing method
+      #    is a compile error inside Crystal's own `client.cr`.
+      # 2. Take the result out through a local, never from `exec`'s return
+      #    value. A captured block is typed `Response ->`, so it returns `Nil`
+      #    and `exec` returns `Nil` with it, where the stdlib returns whatever
+      #    the block produced.
+      #
+      # Both fail at compile time, in the consumer's build, naming a file in
+      # neither shard. Neither can be caught here: the redefinition only ever
+      # arrives from a consumer, and against the stdlib alone both spellings
+      # type-check. So leave this as it is.
       private def hop(uri : URI) : Page | Redirect
+        outcome : Page | Redirect? = nil
+
         HTTP::Client.new(uri) do |client|
           configure(client)
           request = HTTP::Request.new("GET", uri.request_target, headers)
           client.exec(request) do |response|
             location = response.headers["Location"]?
-            if location && REDIRECT_CODES.includes?(response.status_code)
-              Redirect.new(location)
-            else
-              page(uri, response)
-            end
+            outcome = if location && REDIRECT_CODES.includes?(response.status_code)
+                        Redirect.new(location)
+                      else
+                        page(uri, response)
+                      end
           end
         end
+
+        # Rebound to a fresh local because a block-captured variable does not
+        # narrow.
+        result = outcome
+        return result if result
+
+        raise FetchFailedError.new(
+          "#{uri} returned no response",
+          "Check the URL, or try again.")
       rescue ex : IO::Error | Socket::Error
         raise FetchFailedError.new(
           "#{uri} could not be fetched: #{ex.message}",

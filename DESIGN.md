@@ -915,11 +915,22 @@ file in the standard library and nothing in either shard, and it fails at
 compile time in any project depending on both. `wiretap` does this;
 `liaison` hit the same thing from the `post` side.
 
-The cost of avoiding it is one line, building the `HTTP::Request` that the
-overload would have built. The cost of not avoiding it is a consumer who cannot
-compile and has no way to read why. So the rule holds for every network tool
-added here, not only for `fetch_as_markdown`, and `Fetcher#hop` carries the
-reasoning at the call site.
+**And the result comes out through a local, not from what `exec` returns.** A
+captured block is typed `HTTP::Client::Response ->`, which is a proc returning
+`Nil`, so `exec` returns `Nil` along with it -- where the stdlib's block
+overload returns whatever the block produced. A method using that value as its
+own result stops matching its declared return type, and the consumer is told
+that `hop` "must return Page | Redirect but it is returning Nil", pointing at a
+line that is correct in every build but theirs. This is the same dependency as
+the first, read in the other direction: the first is about how `exec` takes its
+block, the second about what it gives back. Fixing only the first leaves the
+second, which is how this arrived as two separate reports.
+
+The cost of avoiding both is two lines, building the `HTTP::Request` that the
+overload would have built and assigning the outcome to a local. The cost of not
+avoiding them is a consumer who cannot compile and has no way to read why. So
+the rule holds for every network tool added here, not only for
+`fetch_as_markdown`, and `Fetcher#hop` carries the reasoning at the call site.
 
 Nothing in this repository's suite can pin it. The failure needs a redefined
 `exec` in the same compilation, which only a consumer supplies; proving it here
