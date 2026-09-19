@@ -782,7 +782,7 @@ the same JSON walker, a flat list cannot say "this field, in this response
 shape", and a host that forgets to re-read it gets a silent mismatch instead of
 a compile error.
 
-### Fetching a web page
+### Fetching a URL
 
 `fetch_as_markdown` is the one tool here that leaves the machine, and the reason
 it lives in a shard called "file system utilities" wants stating.
@@ -867,6 +867,19 @@ enough to look wrong. And fenced content is cut at a *line*, not a blank line,
 and fenced afterwards -- a blank line means nothing in a CSV, and a document
 ending inside an open fence is the one truncation a reader cannot recover from.
 
+**`text/plain` is treated as no answer at all.** It is what a server sends when
+it would rather not commit, and what raw file endpoints send for everything --
+GitHub serves a `.md` in a repository as `text/plain` with `nosniff`,
+deliberately. So when the header declines to be specific, the path decides both
+the class and the fence tag; every other declared type is believed, including
+where the path disagrees, since a site rendering a CSV as an HTML table is
+doing something on purpose. Content sniffing was rejected: it is least reliable
+on exactly the content most likely to be misjudged, and a path extension is
+both stronger evidence and easier to explain when it is wrong. The inference
+decides what was *done*; `content_type` and the front matter keep reporting
+what was *claimed*, or the stored file's provenance would record a statement
+nobody made.
+
 **Stored files carry front matter.** The response knows where content came
 from, but the file outlives the response, and a caller reading it back three
 turns later has only the file. Links in the Markdown are root-relative where
@@ -892,6 +905,14 @@ refusal a different URL cannot fix and the model should be told to stop rather
 than to retry.
 
 ### Calling by name
+
+A convention worth stating because it is only checkable if written down: a
+tool's `Names` constant, lowercased, gives both its `Definitions` builder and
+its private dispatch helper. `Names::READ` has `Definitions.read` and
+`call_read`; `Names::FETCH_AS_MD` has `Definitions.fetch_as_md` and
+`call_fetch_as_md`. The published string is the model's; these are Crystal's,
+and they do not need to match it -- only each other.
+
 
 `Tools#call(name, arguments)` exists because the schemas describe half a
 contract the code did not expose. A host that registers `find_files` has to map
@@ -1017,12 +1038,23 @@ Next, in rough order:
 1. **The session read log**, below.
 2. **TOCTOU**, recorded twice above as acceptable for a trusted workspace. That
    assessment was made when the shard was read-only, and writes change it.
-3. `ls` with metadata, and `tree` with a depth cap. Both are now cheaper than
+3. **`download_file` for content that is not text.** `fetch_as_markdown`
+   refuses a PDF or an archive, correctly: those bytes cannot go in a context
+   window. A tool that saves them and returns a path only would be the
+   counterpart -- never content, so the two never need a caller to check which
+   it got. Deferred for want of a consumer: within this shard the result is
+   unusable, since `read_text_file` refuses binary content, so it is worth
+   building only where a host has other tooling or an agent is assembling
+   files rather than reading them. Note that it has no conversion step, so
+   the size bound is the only bound, and the scratch directory becomes
+   somewhere binaries live.
+
+4. `ls` with metadata, and `tree` with a depth cap. Both are now cheaper than
    this list once implied: adding a name is four edits -- `Names`,
    `Definitions`, the dispatch case and `Response` -- and a forgotten dispatch
    branch is a crash rather than a wrong answer. Both will also want `Scratch`,
    which already exists.
-4. **A way to run with no time budget.** `Walk::Settings#timeout` is a
+5. **A way to run with no time budget.** `Walk::Settings#timeout` is a
    non-nilable `Time::Span` and the config's `timeout_seconds` a non-nilable
    `Float64`, so a host told to bound by work rather than by clock can only set
    a large number and hope. Worth doing on its own merits rather than folding

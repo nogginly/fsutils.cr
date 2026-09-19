@@ -149,6 +149,7 @@ tool_config:
     allow_private_hosts: false
     allowed_hosts: null
     denied_hosts: []
+    accepted_types: null
 ```
 
 ```crystal
@@ -235,7 +236,7 @@ tools.definitions.each do |tool|
 end
 ```
 
-### Fetching a web page
+### Fetching a URL
 
 `fetch_as_markdown` fetches an HTML page and returns it as Markdown. It is the one
 tool here that leaves the machine, and the only one the sandbox cannot protect,
@@ -251,8 +252,15 @@ response.path    # where it was written, when it is not
 converted. A site that serves Markdown is used as it is. Anything else textual —
 CSV, JSON, XML, CSS, SVG, plain text — comes back verbatim inside a fenced code
 block tagged with its type, because the bytes *are* the content and any
-transformation would destroy them. `content_type` says which of the three
-happened. The fence is always at least one backtick longer than the longest run
+transformation would destroy them. `content_type` says what the server
+declared it sent.
+
+`text/plain` is treated as no answer rather than as a type, because raw file
+endpoints serve everything as it, deliberately and with `nosniff`. When the
+header declines to be specific the path decides — a `.md` is read as Markdown,
+a `.json` gets a `json` fence — and any other declared type is believed as
+sent. `content_type` always reports what the server said, not what was
+inferred. The fence is always at least one backtick longer than the longest run
 inside the content, so a raw README full of code blocks nests correctly rather
 than closing its own fence early.
 
