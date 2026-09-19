@@ -904,6 +904,29 @@ empty-allowlist refusal carries its own suggestion, because it is the one
 refusal a different URL cannot fix and the model should be told to stop rather
 than to retry.
 
+**Library code calls `HTTP::Client#exec`, never the block-taking `get`, `post`
+or `put`.** Those convenience overloads are each a one-line wrapper whose body
+is `exec(request) { |response| yield response }`. A library that redefines
+`exec` to *capture* its block -- which is what recording or replaying HTTP
+requires, and the obvious way for a consumer to test against a network tool --
+turns that `yield` into `can't use 'yield' inside a proc literal or captured
+block`. The failing code is Crystal's own `client.cr`, so the error names a
+file in the standard library and nothing in either shard, and it fails at
+compile time in any project depending on both. `wiretap` does this;
+`liaison` hit the same thing from the `post` side.
+
+The cost of avoiding it is one line, building the `HTTP::Request` that the
+overload would have built. The cost of not avoiding it is a consumer who cannot
+compile and has no way to read why. So the rule holds for every network tool
+added here, not only for `fetch_as_markdown`, and `Fetcher#hop` carries the
+reasoning at the call site.
+
+Nothing in this repository's suite can pin it. The failure needs a redefined
+`exec` in the same compilation, which only a consumer supplies; proving it here
+would mean shipping a fake HTTP library to demonstrate that somebody else's
+build works. The comment and this paragraph are the whole guard, which is why
+both say to leave the call as it is.
+
 ### Calling by name
 
 A convention worth stating because it is only checkable if written down: a
