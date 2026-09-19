@@ -1,4 +1,5 @@
 require "html"
+require "uri"
 
 module FsUtils
   class Tools
@@ -89,8 +90,9 @@ module FsUtils
     def fetch_as_markdown(url : String) : MarkdownResponse
       started = Time.instant
       page = Web::Fetcher.new(@config.fetch.to_settings).fetch(url)
-      kind = kind_of(page)
-      markdown = markdown_for(page, kind)
+      type = effective_type(page)
+      kind = kind_of(type)
+      markdown = markdown_for(page, kind, type)
       title = title_of(page, markdown, kind)
       held = @scratch.hold(page.url, markdown.text, front_matter(page, title, markdown.truncated?))
 
@@ -113,6 +115,32 @@ module FsUtils
     private TAG_UNSAFE = /[^a-z0-9+_-]+/
 
     private RENDERED_TYPES = {"text/html", "application/xhtml+xml"}
+
+    private PLAIN_TYPE = "text/plain"
+
+    # `text/plain` is the one content type that says nothing. It is the answer
+    # a server gives when it would rather not commit, and what raw file
+    # endpoints serve every file as -- GitHub serves a `.md` in a repository
+    # as `text/plain` with `nosniff`, deliberately. When the header declines
+    # to be specific the path is better evidence, so it is consulted; any
+    # other declared type is believed.
+    #
+    # `.html` is deliberately absent. Conversion is lossy, and someone
+    # fetching a raw HTML file that a server refused to type most plausibly
+    # wants its source, which a fence gives them intact.
+    private EXTENSION_TYPES = {
+      ".md"       => "text/markdown",
+      ".markdown" => "text/markdown",
+      ".csv"      => "text/csv",
+      ".tsv"      => "text/tab-separated-values",
+      ".json"     => "application/json",
+      ".xml"      => "text/xml",
+      ".yaml"     => "application/yaml",
+      ".yml"      => "application/yaml",
+      ".svg"      => "image/svg+xml",
+      ".css"      => "text/css",
+      ".js"       => "text/javascript",
+    }
 
     private MARKDOWN_SUFFIX = "/markdown"
 
@@ -145,8 +173,21 @@ module FsUtils
       Contained
     end
 
-    private def kind_of(page : Web::Fetcher::Page) : Kind
-      type = page.content_type.try(&.downcase)
+    # What the content is taken to be. The server's own answer is reported
+    # unchanged in `content_type`; this is only what was done with it.
+    private def effective_type(page : Web::Fetcher::Page) : String?
+      declared = page.content_type.try(&.downcase)
+      return declared unless declared.nil? || declared == PLAIN_TYPE
+      EXTENSION_TYPES[extension_of(page.url)]? || declared
+    end
+
+    private def extension_of(url : String) : String
+      ::File.extname(URI.parse(url).path).downcase
+    rescue URI::Error
+      ""
+    end
+
+    private def kind_of(type : String?) : Kind
       return Kind::Rendered if type.nil? || RENDERED_TYPES.includes?(type)
       type.ends_with?(MARKDOWN_SUFFIX) ? Kind::Served : Kind::Contained
     end
@@ -154,11 +195,11 @@ module FsUtils
     # `max_content_bytes` bounds the payload in every case, or the limit
     # would mean one thing for a page converted here and nothing at all for
     # one the server had already prepared.
-    private def markdown_for(page : Web::Fetcher::Page, kind : Kind) : Converted
+    private def markdown_for(page : Web::Fetcher::Page, kind : Kind, type : String?) : Converted
       case kind
       in Kind::Rendered  then convert(page)
       in Kind::Served    then served(page)
-      in Kind::Contained then contained(page)
+      in Kind::Contained then contained(page, type)
       end
     end
 
@@ -182,15 +223,15 @@ module FsUtils
     # nothing in a CSV, and fence afterwards so the closing ticks are always
     # written -- a truncated document that ends inside an open fence is
     # exactly the case a reader cannot recover from.
-    private def contained(page : Web::Fetcher::Page) : Converted
+    private def contained(page : Web::Fetcher::Page, type : String?) : Converted
       payload, truncated = Text.line_prefix(page.body, @config.fetch.max_content_bytes)
-      Converted.new(Text.fence(payload, fence_tag(page.content_type)), truncated)
+      Converted.new(Text.fence(payload, fence_tag(type)), truncated)
     end
 
-    private def fence_tag(content_type : String?) : String
-      type = content_type.try(&.downcase) || "text/plain"
-      return FENCE_TAGS[type] if FENCE_TAGS.has_key?(type)
-      type.split('/').last.sub(TAG_PREFIX, "").gsub(TAG_UNSAFE, "")
+    private def fence_tag(type : String?) : String
+      name = type || PLAIN_TYPE
+      return FENCE_TAGS[name] if FENCE_TAGS.has_key?(name)
+      name.split('/').last.sub(TAG_PREFIX, "").gsub(TAG_UNSAFE, "")
     end
 
     # From <title> for HTML, read from the raw page because the converter

@@ -40,6 +40,15 @@ private def respond(context : HTTP::Server::Context) : Nil
   when "/bigcsv"
     response.content_type = "text/csv"
     response.print String.build { |io| io << "name,size\n"; 400.times { |index| io << "row" << index << "," << index << "\n" } }
+  when "/raw/doc.md"
+    response.content_type = "text/plain"
+    response.print "# Raw\n\nServed as plain text, as raw file endpoints do.\n"
+  when "/raw/data.json"
+    response.content_type = "text/plain"
+    response.print %({"name": "alpha"}\n)
+  when "/raw/notes.txt"
+    response.content_type = "text/plain"
+    response.print "just prose\n"
   when "/binary"
     response.content_type = "application/zip"
     response.print "PK"
@@ -249,6 +258,58 @@ describe "FsUtils::Tools#fetch_as_markdown" do
           content.should start_with "```csv\n"
           content.should end_with "```\n"
           content.lines[-2].should_not end_with ","
+        end
+      end
+    end
+  end
+
+  # A raw file endpoint answers text/plain for everything, deliberately and
+  # with nosniff. The header has declined to say anything, so the path is the
+  # better evidence -- but only then.
+  describe "content a server would not type" do
+    it "reads a .md served as plain text as the Markdown it is" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.fetch_as_markdown("#{base}/raw/doc.md")
+
+          response.content.to_s.should start_with "# Raw"
+          response.content.to_s.should_not contain "```"
+          response.title.should eq "Raw"
+        end
+      end
+    end
+
+    # The server's own answer is what the response and the front matter
+    # record; the inference only decides what was done with it.
+    it "still reports the type the server declared" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/raw/doc.md").content_type.should eq "text/plain"
+        end
+      end
+    end
+
+    it "tags the fence from the path when the header will not say" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/raw/data.json").content.to_s.should start_with "```json\n"
+        end
+      end
+    end
+
+    it "falls back to a plain fence with nothing to go on" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/raw/notes.txt").content.to_s.should start_with "```text\n"
+        end
+      end
+    end
+
+    # A server that names a type means it, even when the path disagrees.
+    it "believes a declared type over the path" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/csv").content.to_s.should start_with "```csv\n"
         end
       end
     end
