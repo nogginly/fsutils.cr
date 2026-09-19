@@ -25,5 +25,5 @@ targets:
     main: samples/cat.cr
   fsu-rename:
     main: samples/rename.cr
-  fsu-fetch:
-    main: samples/fetch.cr
+  fsu-fetch-as-md:
+    main: samples/fetch_as_md.cr

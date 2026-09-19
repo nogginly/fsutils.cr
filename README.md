@@ -347,8 +347,8 @@ ops build-debug
 # Preview a rename across the tree; nothing is written without --write.
 ./bin/debug/fsu-rename UnknownTool MissingTool src -t cr
 
-# Fetch a page as Markdown, or just its headings.
-./bin/debug/fsu-fetch https://example.com/docs --outline
+# Fetch a URL as Markdown; large pages are written under --root instead.
+./bin/debug/fsu-fetch-as-md https://example.com/docs --root /tmp/scratch
 ```
 
 `fsu-rename` is the one worth reading. It composes two helpers — `Grep` in
