@@ -153,10 +153,19 @@ module FsUtils
           "Try the address the redirects were leading to, if it is known.")
       end
 
+      # Builds the request and calls `exec` directly rather than the
+      # block-taking `get` overload, whose body is `exec(...) { |r| yield r }`.
+      # A library that redefines `exec` to *capture* its block -- recording or
+      # replaying HTTP, which is how a network tool gets tested -- turns that
+      # `yield` into a compile error inside Crystal's own `client.cr`, in any
+      # project depending on both. Anything that reinstates `get` with a block
+      # will reintroduce the failure, so leave it. This shard's suite cannot
+      # catch it: the redefinition only ever arrives from a consumer.
       private def hop(uri : URI) : Page | Redirect
         HTTP::Client.new(uri) do |client|
           configure(client)
-          client.get(uri.request_target, headers: headers) do |response|
+          request = HTTP::Request.new("GET", uri.request_target, headers)
+          client.exec(request) do |response|
             location = response.headers["Location"]?
             if location && REDIRECT_CODES.includes?(response.status_code)
               Redirect.new(location)
