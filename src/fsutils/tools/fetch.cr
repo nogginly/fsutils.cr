@@ -81,7 +81,7 @@ module FsUtils
     # The network is not the sandbox, and this is the one tool that leaves the
     # machine. `Config::Fetch` carries its own guard: hosts are resolved and
     # every address checked, on the first request and on every redirect.
-    def fetch(url : String) : FetchResponse
+    def fetch_as_markdown(url : String) : FetchResponse
       started = Time.instant
       page = Web::Fetcher.new(@config.fetch.to_settings).fetch(url)
       markdown = markdown_for(page)

@@ -66,11 +66,11 @@ private def with_tools(max_output_bytes : Int32 = 32_000, &)
   end
 end
 
-describe "FsUtils::Tools#fetch" do
+describe "FsUtils::Tools#fetch_as_markdown" do
   it "returns a short page inline" do
     with_server do |base|
       with_tools do |tools, root|
-        response = tools.fetch("#{base}/small")
+        response = tools.fetch_as_markdown("#{base}/small")
 
         response.ok?.should be_true
         response.status.should eq 200
@@ -84,7 +84,7 @@ describe "FsUtils::Tools#fetch" do
   it "reads the title from the page's head, which the converter drops" do
     with_server do |base|
       with_tools do |tools, _|
-        tools.fetch("#{base}/titled").title.should eq "A & B: the page"
+        tools.fetch_as_markdown("#{base}/titled").title.should eq "A & B: the page"
       end
     end
   end
@@ -93,7 +93,7 @@ describe "FsUtils::Tools#fetch" do
     it "writes it to the scratch area and describes it" do
       with_server do |base|
         with_tools(max_output_bytes: 500) do |tools, root|
-          response = tools.fetch("#{base}/long")
+          response = tools.fetch_as_markdown("#{base}/long")
 
           response.ok?.should be_true
           response.content.should be_nil
@@ -110,7 +110,7 @@ describe "FsUtils::Tools#fetch" do
     it "indexes the file it wrote, front matter included" do
       with_server do |base|
         with_tools(max_output_bytes: 500) do |tools, root|
-          response = tools.fetch("#{base}/long")
+          response = tools.fetch_as_markdown("#{base}/long")
           toc = response.toc.not_nil!
 
           toc.map(&.title).first.should eq "Long"
@@ -126,7 +126,7 @@ describe "FsUtils::Tools#fetch" do
     it "opens the file with front matter naming where it came from" do
       with_server do |base|
         with_tools(max_output_bytes: 500) do |tools, root|
-          response = tools.fetch("#{base}/long")
+          response = tools.fetch_as_markdown("#{base}/long")
 
           document = ::File.read(::File.join(root, response.path.to_s))
           document.should start_with "---\n"
@@ -139,7 +139,7 @@ describe "FsUtils::Tools#fetch" do
     it "keeps the scratch area out of later searches" do
       with_server do |base|
         with_tools(max_output_bytes: 500) do |tools, _|
-          tools.fetch("#{base}/long")
+          tools.fetch_as_markdown("#{base}/long")
 
           found = tools.find(name: ["*.md"], include_hidden: true)
           (found.results.try(&.map(&.path)) || [] of String).should be_empty
@@ -157,7 +157,7 @@ describe "FsUtils::Tools#fetch" do
     it "uses what it was given" do
       with_server do |base|
         with_tools do |tools, _|
-          response = tools.fetch("#{base}/md")
+          response = tools.fetch_as_markdown("#{base}/md")
 
           response.ok?.should be_true
           response.content.to_s.should contain "[link](/other)"
@@ -168,7 +168,7 @@ describe "FsUtils::Tools#fetch" do
     it "takes its title from the first top-level heading" do
       with_server do |base|
         with_tools do |tools, _|
-          tools.fetch("#{base}/md").title.should eq "Served"
+          tools.fetch_as_markdown("#{base}/md").title.should eq "Served"
         end
       end
     end
@@ -183,7 +183,7 @@ describe "FsUtils::Tools#fetch" do
           config.fetch.max_markdown_bytes = 400_i64
           bounded = FsUtils::Tools.new(root, config)
 
-          response = bounded.fetch("#{base}/bigmd")
+          response = bounded.fetch_as_markdown("#{base}/bigmd")
 
           response.truncated.should be_true
           response.bytes.not_nil!.should be <= 400
@@ -197,7 +197,7 @@ describe "FsUtils::Tools#fetch" do
     it "answers rather than raises for content it cannot convert" do
       with_server do |base|
         with_tools do |tools, _|
-          response = tools.fetch("#{base}/plain")
+          response = tools.fetch_as_markdown("#{base}/plain")
 
           response.ok?.should be_false
           response.error.try(&.code).should eq FsUtils::ErrorCode::UNSUPPORTED_CONTENT_TYPE
@@ -208,7 +208,7 @@ describe "FsUtils::Tools#fetch" do
     it "answers rather than raises for a missing page" do
       with_server do |base|
         with_tools do |tools, _|
-          response = tools.fetch("#{base}/nowhere")
+          response = tools.fetch_as_markdown("#{base}/nowhere")
 
           response.ok?.should be_false
           response.error.try(&.code).should eq FsUtils::ErrorCode::HTTP_ERROR
@@ -221,7 +221,7 @@ describe "FsUtils::Tools#fetch" do
       Dir.mkdir_p(root)
 
       begin
-        response = FsUtils::Tools.new(root).fetch("http://127.0.0.1:1/page")
+        response = FsUtils::Tools.new(root).fetch_as_markdown("http://127.0.0.1:1/page")
 
         response.ok?.should be_false
         response.error.try(&.code).should eq FsUtils::ErrorCode::HOST_NOT_ALLOWED
@@ -235,7 +235,7 @@ describe "FsUtils::Tools#fetch" do
     it "dispatches and serialises" do
       with_server do |base|
         with_tools do |tools, _|
-          response = tools.call(FsUtils::Tools::Names::FETCH,
+          response = tools.call(FsUtils::Tools::Names::FETCH_AS_MD,
             {"url" => JSON::Any.new("#{base}/small")})
 
           response.ok?.should be_true
@@ -245,7 +245,7 @@ describe "FsUtils::Tools#fetch" do
     end
 
     it "is published with the others" do
-      FsUtils::Tools::Definitions.all.map(&.name).should contain FsUtils::Tools::Names::FETCH
+      FsUtils::Tools::Definitions.all.map(&.name).should contain FsUtils::Tools::Names::FETCH_AS_MD
     end
   end
 end

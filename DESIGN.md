@@ -784,7 +784,7 @@ a compile error.
 
 ### Fetching a web page
 
-`fetch_web_page` is the one tool here that leaves the machine, and the reason
+`fetch_as_markdown` is the one tool here that leaves the machine, and the reason
 it lives in a shard called "file system utilities" wants stating.
 
 The alternative was a second shard depending on this one and contributing its
@@ -825,7 +825,7 @@ the lines each section spans. Those line numbers are what `read_text_file`
 takes as `offset` and `limit`, which is the point: the index addresses a tool
 the model already has rather than adding a capability to learn.
 
-`Scratch` is deliberately general, and `fetch_web_page` is its first caller
+`Scratch` is deliberately general, and `fetch_as_markdown` is its first caller
 rather than its owner. "Result too large to return, so write it and describe
 it" is what `ls` and `tree` will want, and what a `grep` over a large tree
 might. Building it inside the fetch tool would have meant the second such tool
@@ -981,7 +981,7 @@ small change; it is simply not one that has been made.
 
 Done: the `Walker` extraction, `Find` and `Grep` rebased onto it, `Tools` over
 both, the three text tools over `Reader`, `Writer` and `Replacer`, and
-`fetch_web_page` over `Web::Fetcher`, `Web::HtmlToMarkdown` and `Scratch`.
+`fetch_as_markdown` over `Web::Fetcher`, `Web::HtmlToMarkdown` and `Scratch`.
 
 Next, in rough order:
 

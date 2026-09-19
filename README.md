@@ -122,7 +122,7 @@ tools.find(name: ["*.cr"], type: "file").to_json
 tools.read(path: "src/find.cr", offset: 12, limit: 40).to_json
 tools.write(path: "src/out.cr", content: "puts 1\n").to_json
 tools.text_replace(path: "src/find.cr", old_string: "a", new_string: "b").to_json
-tools.fetch(url: "https://example.com/docs").to_json
+tools.fetch_as_markdown(url: "https://example.com/docs").to_json
 ```
 
 Six tools, each with its own result shape but the same four common fields, so
@@ -237,12 +237,12 @@ end
 
 ### Fetching a web page
 
-`fetch_web_page` fetches an HTML page and returns it as Markdown. It is the one
+`fetch_as_markdown` fetches an HTML page and returns it as Markdown. It is the one
 tool here that leaves the machine, and the only one the sandbox cannot protect,
 so it carries a guard of its own.
 
 ```crystal
-response = tools.fetch(url: "https://example.com/docs")
+response = tools.fetch_as_markdown(url: "https://example.com/docs")
 response.content # the Markdown, when the page is short
 response.path    # where it was written, when it is not
 ```

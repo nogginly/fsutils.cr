@@ -153,7 +153,7 @@ module FsUtils
         end
       end
 
-      # Bounds `fetch_web_page`, and guards where it may go.
+      # Bounds `fetch_as_markdown`, and guards where it may go.
       #
       # `allowed_hosts` is nil when there is no allowlist. An empty array is
       # an allowlist naming nothing, which permits nothing -- a list means
