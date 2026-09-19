@@ -31,9 +31,18 @@ private def respond(context : HTTP::Server::Context) : Nil
   when "/bigmd"
     response.content_type = "text/markdown"
     response.print String.build { |io| 8.times { |index| io << "## Part " << index << "\n\n" << ("word " * 200) << "\n\n" } }
-  when "/plain"
+  when "/csv"
+    response.content_type = "text/csv"
+    response.print "name,size\nalpha,1\nbeta,2\n"
+  when "/readme"
     response.content_type = "text/plain"
-    response.print "not html"
+    response.print "# Thing\n\n```sh\nmake install\n```\n"
+  when "/bigcsv"
+    response.content_type = "text/csv"
+    response.print String.build { |io| io << "name,size\n"; 400.times { |index| io << "row" << index << "," << index << "\n" } }
+  when "/binary"
+    response.content_type = "application/zip"
+    response.print "PK"
   else
     response.status_code = 404
     response.print "<html><body>gone</body></html>"
@@ -173,14 +182,14 @@ describe "FsUtils::Tools#fetch_as_markdown" do
       end
     end
 
-    # Otherwise max_markdown_bytes would bound a converted page and nothing
+    # Otherwise max_content_bytes would bound a converted page and nothing
     # at all for a served one.
     it "is bounded like a converted page" do
       with_server do |base|
         with_tools do |tools, root|
           config = FsUtils::Tools::Config.new
           config.fetch.allow_private_hosts = true
-          config.fetch.max_markdown_bytes = 400_i64
+          config.fetch.max_content_bytes = 400_i64
           bounded = FsUtils::Tools.new(root, config)
 
           response = bounded.fetch_as_markdown("#{base}/bigmd")
@@ -193,11 +202,63 @@ describe "FsUtils::Tools#fetch_as_markdown" do
     end
   end
 
-  describe "failures a caller can act on" do
-    it "answers rather than raises for content it cannot convert" do
+  # Markdown is the container. A model has seen far more CSV inside a
+  # ```csv fence than in any other presentation, and fencing costs nothing
+  # that converting would not cost more.
+  describe "text that is not a document" do
+    it "returns it verbatim inside a tagged fence" do
       with_server do |base|
         with_tools do |tools, _|
-          response = tools.fetch_as_markdown("#{base}/plain")
+          response = tools.fetch_as_markdown("#{base}/csv")
+
+          response.ok?.should be_true
+          response.content_type.should eq "text/csv"
+          response.content.to_s.should start_with "```csv\n"
+          response.content.to_s.should contain "alpha,1"
+          response.title.should be_nil
+        end
+      end
+    end
+
+    # Three backticks would close at the content's own first code block, and
+    # the result is not malformed enough to look wrong.
+    it "opens a fence longer than any run inside the content" do
+      with_server do |base|
+        with_tools do |tools, _|
+          content = tools.fetch_as_markdown("#{base}/readme").content.to_s
+
+          content.should start_with "````text\n"
+          content.should end_with "````\n"
+          content.should contain "```sh"
+        end
+      end
+    end
+
+    # A blank line means nothing in a CSV, and an unclosed fence is the one
+    # truncation a reader cannot recover from.
+    it "cuts at a line and still closes the fence" do
+      with_server do |base|
+        with_tools do |tools, root|
+          config = FsUtils::Tools::Config.new
+          config.fetch.allow_private_hosts = true
+          config.fetch.max_content_bytes = 200_i64
+          bounded = FsUtils::Tools.new(root, config)
+
+          content = bounded.fetch_as_markdown("#{base}/bigcsv").content.to_s
+
+          content.should start_with "```csv\n"
+          content.should end_with "```\n"
+          content.lines[-2].should_not end_with ","
+        end
+      end
+    end
+  end
+
+  describe "failures a caller can act on" do
+    it "answers rather than raises for content that is not text" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.fetch_as_markdown("#{base}/binary")
 
           response.ok?.should be_false
           response.error.try(&.code).should eq FsUtils::ErrorCode::UNSUPPORTED_CONTENT_TYPE

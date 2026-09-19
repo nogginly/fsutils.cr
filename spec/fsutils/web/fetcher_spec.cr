@@ -34,6 +34,9 @@ private def respond(context : HTTP::Server::Context) : Nil
   when "/plain"
     response.content_type = "text/plain"
     response.print "not html"
+  when "/zip"
+    response.content_type = "application/zip"
+    response.print "PK"
   when "/echo-accept"
     response.content_type = "text/html"
     response.print "<html><body>#{context.request.headers["Accept"]?}</body></html>"
@@ -112,19 +115,34 @@ describe FsUtils::Web::Fetcher do
     end
   end
 
-  # Documentation sites increasingly answer the Accept header this way.
-  it "accepts Markdown and says so" do
+  # Documentation sites increasingly answer the Accept header this way. What
+  # to do about it belongs to the caller; this class only reports it.
+  it "reports the content type it was given" do
     with_server do |base|
       page = fetcher.fetch("#{base}/md")
 
-      page.markdown?.should be_true
+      page.content_type.should eq "text/markdown"
       page.body.should contain "# Served"
+      fetcher.fetch("#{base}/small").content_type.should eq "text/html"
     end
   end
 
-  it "does not treat an HTML page as Markdown" do
+  it "reads a text type it was not specifically told about" do
     with_server do |base|
-      fetcher.fetch("#{base}/small").markdown?.should be_false
+      fetcher.fetch("#{base}/plain").body.should contain "not html"
+    end
+  end
+
+  it "refuses a type outside the accepted list" do
+    with_server do |base|
+      guard = FsUtils::Web::Fetcher.new do |settings|
+        settings.host_policy.allow_private_hosts = true
+        settings.accepted_types = ["text/html"]
+      end
+
+      expect_raises(FsUtils::UnsupportedContentTypeError, /text\/plain/) do
+        guard.fetch("#{base}/plain")
+      end
     end
   end
 
@@ -134,10 +152,10 @@ describe FsUtils::Web::Fetcher do
     end
   end
 
-  it "refuses content it does not read" do
+  it "refuses content that is not text at all" do
     with_server do |base|
-      error = expect_raises(FsUtils::UnsupportedContentTypeError, /text\/plain/) do
-        fetcher.fetch("#{base}/plain")
+      error = expect_raises(FsUtils::UnsupportedContentTypeError, /application\/zip/) do
+        fetcher.fetch("#{base}/zip")
       end
       error.code.should eq FsUtils::ErrorCode::UNSUPPORTED_CONTENT_TYPE
     end

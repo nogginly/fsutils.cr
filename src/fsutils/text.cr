@@ -57,6 +57,47 @@ module FsUtils
       {trim_to_block(byte_prefix(text, max_bytes)), true}
     end
 
+    # Returns at most `max_bytes` of `text`, ending at a line boundary, and
+    # whether anything was dropped.
+    #
+    # The counterpart of `block_prefix` for content that is not prose. A
+    # blank line means nothing in a CSV and never occurs in most JSON, so
+    # cutting there would discard almost everything; a line is the smallest
+    # unit such content can be cut on without corrupting a row.
+    def self.line_prefix(text : String, max_bytes : Int64) : {String, Bool}
+      return {text, false} if text.bytesize <= max_bytes
+      prefix = byte_prefix(text, max_bytes)
+      boundary = prefix.rindex('\n')
+      {boundary ? prefix[0, boundary] : prefix, true}
+    end
+
+    # Wraps content in a fenced code block tagged with `tag`.
+    #
+    # The fence is one backtick longer than the longest run inside the
+    # content, which is the ordinary Markdown rule for nesting and the one
+    # thing that is easy to get wrong here. A raw README wrapped in three
+    # backticks closes its fence at its own first code block, and the result
+    # is not malformed enough to look wrong -- it just means something else.
+    def self.fence(content : String, tag : String) : String
+      ticks = "`" * fence_width(content)
+      String.build do |io|
+        io << ticks << tag << '\n'
+        io << content
+        io << '\n' unless content.ends_with?('\n')
+        io << ticks << '\n'
+      end
+    end
+
+    private def self.fence_width(content : String) : Int32
+      longest = 0
+      run = 0
+      content.each_char do |char|
+        run = char == '`' ? run + 1 : 0
+        longest = run if run > longest
+      end
+      Math.max(3, longest + 1)
+    end
+
     private def self.byte_prefix(text : String, max_bytes : Int64) : String
       bytes = text.to_slice
       limit = max_bytes.clamp(0_i64, bytes.size.to_i64).to_i

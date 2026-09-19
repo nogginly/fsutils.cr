@@ -145,7 +145,7 @@ tool_config:
     dir: ".agent-scratch"
   fetch:
     max_page_bytes: 8388608
-    max_markdown_bytes: 4194304
+    max_content_bytes: 4194304
     allow_private_hosts: false
     allowed_hosts: null
     denied_hosts: []
@@ -247,6 +247,15 @@ response.content # the Markdown, when the page is short
 response.path    # where it was written, when it is not
 ```
 
+**Markdown is the container, not just the output format.** An HTML page is
+converted. A site that serves Markdown is used as it is. Anything else textual —
+CSV, JSON, XML, CSS, SVG, plain text — comes back verbatim inside a fenced code
+block tagged with its type, because the bytes *are* the content and any
+transformation would destroy them. `content_type` says which of the three
+happened. The fence is always at least one backtick longer than the longest run
+inside the content, so a raw README full of code blocks nests correctly rather
+than closing its own fence early.
+
 **Short pages come back whole; long ones are written to a file and described.**
 A reference page converted in full can fill a small model's context on its own,
 so past `max_output_bytes` the Markdown is written into the scratch directory
@@ -270,9 +279,10 @@ question, not this shard's.
 **Three bounds apply in turn, and none substitutes for another.** The fetcher
 stops reading past `max_page_bytes`, counted from the response body rather than
 from `Content-Length`, which is absent under chunked encoding and understates a
-compressed body. The converter stops writing past `max_markdown_bytes` and cuts
-back to a block boundary, so a truncated page never ends inside a fence or a
-table. What survives is returned inline only if it fits `max_output_bytes`. A
+compressed body. `max_content_bytes` bounds what comes back whatever it is — prose is
+cut back to a blank line, fenced content to a line, since a blank line means
+nothing in a CSV. Fencing happens after the cut, so a truncated data file still
+closes its fence. What survives is returned inline only if it fits `max_output_bytes`. A
 page of boilerplate shrinks under conversion; a page of dense tables grows.
 
 **Where it may go is checked by resolving, then comparing** — the sandbox's own

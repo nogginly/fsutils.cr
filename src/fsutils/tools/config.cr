@@ -164,13 +164,16 @@ module FsUtils
         include JSON::Serializable
 
         property max_page_bytes : Int64 = FsUtils::Web::Fetcher::DEFAULT_MAX_PAGE_BYTES.to_i64
-        property max_markdown_bytes : Int64 = 4_194_304_i64
+        property max_content_bytes : Int64 = 4_194_304_i64
         property timeout_seconds : Float64 = 20.0
         property max_redirects : Int32 = FsUtils::Web::Fetcher::DEFAULT_MAX_REDIRECTS
         property user_agent : String = FsUtils::Web::Fetcher::DEFAULT_USER_AGENT
         property? allow_private_hosts : Bool = false
         property allowed_hosts : Array(String)? = nil
         property denied_hosts : Array(String) = [] of String
+        # Nil leaves the fetcher's own default, which is any text type plus
+        # JSON, XML and SVG. A list replaces it outright.
+        property accepted_types : Array(String)? = nil
 
         def initialize
         end
@@ -182,6 +185,9 @@ module FsUtils
           settings.timeout = timeout_seconds.seconds
           settings.user_agent = user_agent
           settings.host_policy = host_policy
+          if types = accepted_types
+            settings.accepted_types = types
+          end
           settings
         end
 
@@ -274,7 +280,7 @@ module FsUtils
         replace.to_settings.validate!
         scratch.to_settings(max_output_bytes).validate!
         fetch.to_settings.validate!
-        raise ArgumentError.new("fetch.max_markdown_bytes must be positive") if fetch.max_markdown_bytes < 1
+        raise ArgumentError.new("fetch.max_content_bytes must be positive") if fetch.max_content_bytes < 1
       end
     end
   end

@@ -806,13 +806,18 @@ than by `HTTP::Client` -- its own redirect following would never show us the
 intermediate address, and a permitted host redirecting to `169.254.169.254` is
 the attack this guards.
 
+**Accepted types are the tool's policy, checked in the fetcher.** What is worth
+reading depends on what the caller can do with it, so the list is a setting.
+The check stays in `Fetcher` because it runs before the body is read, and
+refusing a video should cost nothing rather than downloading one first.
+
 **Three bounds, and none substitutes for another.** `max_page_bytes` stops the
 read, counted from the response body rather than from `Content-Length`, which
 is absent under chunked encoding and understates a compressed body that
 `HTTP::Client` inflates on the way past -- so a two megabyte response can be a
 two gigabyte read and the only honest place to count is the read itself.
-`max_markdown_bytes` stops the conversion, cutting back to the last blank line
-so a truncated page never ends inside a fence or a table row. `max_output_bytes`
+`max_content_bytes` bounds the result, cutting prose back to the last blank
+line and fenced content back to the last line. `max_output_bytes`
 decides inline against spilled. A page of boilerplate shrinks under conversion
 and a page of dense tables grows, so no one of these implies the others.
 
@@ -837,6 +842,30 @@ every later search, so it is hidden and added to `skip_dirs` for `find` and
 `grep`. The list is *replaced* rather than appended to: `Settings#copy` is
 shallow and the default skip list is a shared constant, so `<<` would have
 poisoned every search in the process.
+
+**Markdown is a container format, not only an output format.** HTML is
+rendered; served Markdown is passed through; every other text type is returned
+verbatim inside a fence tagged with its type. The alternative considered was a
+`format` field and per-format handling -- a `.csv` spilled as a real CSV, with
+no front matter, since YAML at the top of a CSV corrupts it. The container
+wins on three counts: a model has seen far more CSV inside a ```csv fence than
+in any other presentation, so it matches the corpus; every stored file stays
+Markdown, so front matter, `Outline` and the `.md` extension keep working
+without a branch; and adding a text type later is a fence tag rather than a
+code path.
+
+Its one real cost, recorded so nobody rediscovers it: a spilled CSV inside a
+fence is no longer a CSV. Anything outside this shard consuming the file as
+data must strip a preamble and two fence lines first. Within the shard nothing
+suffers -- `read_text_file`, `grep` and `text_replace` all work on it, and
+`grep` still finds the rows.
+
+Two details that look small and are not. The fence is one backtick longer than
+the longest run inside the content, because a raw README wrapped in three
+backticks closes at its own first code block and the result is not malformed
+enough to look wrong. And fenced content is cut at a *line*, not a blank line,
+and fenced afterwards -- a blank line means nothing in a CSV, and a document
+ending inside an open fence is the one truncation a reader cannot recover from.
 
 **Stored files carry front matter.** The response knows where content came
 from, but the file outlives the response, and a caller reading it back three

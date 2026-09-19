@@ -11,7 +11,7 @@ end
 
 url = nil.as(String?)
 max_page_bytes = FsUtils::Web::Fetcher::DEFAULT_MAX_PAGE_BYTES
-max_markdown_bytes = nil.as(Int32?)
+max_content_bytes = nil.as(Int32?)
 allow_private = false
 outline = false
 
@@ -20,8 +20,8 @@ OptionParser.parse do |parser|
   parser.on("--max-page-bytes BYTES", "cap on bytes read from the response") do |value|
     max_page_bytes = to_int("--max-page-bytes", value)
   end
-  parser.on("--max-markdown-bytes BYTES", "cap on Markdown written") do |value|
-    max_markdown_bytes = to_int("--max-markdown-bytes", value)
+  parser.on("--max-content-bytes BYTES", "cap on Markdown written") do |value|
+    max_content_bytes = to_int("--max-content-bytes", value)
   end
   parser.on("--allow-private", "permit loopback and private addresses") { allow_private = true }
   parser.on("--outline", "print the heading outline instead of the page") { outline = true }
@@ -48,7 +48,7 @@ begin
   result = FsUtils::Web::HtmlToMarkdown.translate(
     IO::Memory.new(page.body), markdown,
     base_url: page.url,
-    max_bytes: max_markdown_bytes.try(&.to_i64))
+    max_bytes: max_content_bytes.try(&.to_i64))
 
   STDERR.puts "#{page.url} -> #{page.status}, #{page.bytes} bytes in, #{result.bytes} bytes out#{result.truncated? ? ", truncated" : ""}"
 

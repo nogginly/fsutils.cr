@@ -28,7 +28,7 @@ module FsUtils
     # NOTE: this union grows with every tool added. `ls` and `tree` are on the
     # roadmap. An exhaustive `case` over it is not a stable contract.
     alias Response = SearchResponse(FindResult) | SearchResponse(GrepResult) |
-                     ReadResponse | WriteResponse | ReplaceResponse | FetchResponse |
+                     ReadResponse | WriteResponse | ReplaceResponse | MarkdownResponse |
                      ErrorResponse
 
     # A caller's arguments, checked against what the tool actually accepts.
@@ -246,7 +246,7 @@ module FsUtils
       )
     end
 
-    private def call_fetch_as_md(args : Arguments) : FetchResponse
+    private def call_fetch_as_md(args : Arguments) : MarkdownResponse
       fetch_as_markdown(url: args.string("url"))
     end
 

@@ -30,17 +30,23 @@ module FsUtils
 
       private CHUNK_BYTES = 16_384
 
-      private HTML_TYPES = {"text/html", "application/xhtml+xml"}
+      # Documentation sites increasingly answer with Markdown when asked, so
+      # ask for it first. HTML keeps a high q rather than being dropped: a
+      # server that honours Accept and has no Markdown should send its page,
+      # not a 406.
+      DEFAULT_ACCEPT = "text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.8"
 
-      # Documentation sites increasingly answer with Markdown when asked, and
-      # it is what this is trying to produce, so ask for it first. HTML keeps
-      # a high q rather than being dropped: a server that honours Accept and
-      # has no Markdown should send its page, not a 406.
-      private ACCEPT = "text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.8"
-
-      # Covers text/markdown and text/x-markdown. Deliberately not text/plain,
-      # which is what a great many things that are not Markdown are served as.
-      private MARKDOWN_SUFFIX = "/markdown"
+      # What may be read at all. An entry ending in `/*` matches a whole
+      # top-level type. SVG is an `image/*` that is text, so it is named
+      # rather than inferred.
+      #
+      # This is a default, not a policy: what is worth reading depends on
+      # what the caller can do with it, and the caller supplies its own list.
+      # The check stays here, though, because it runs before the body is
+      # read -- refusing a video should cost nothing rather than downloading
+      # one first.
+      DEFAULT_ACCEPTED_TYPES = ["text/*", "application/json", "application/xml",
+                                "application/xhtml+xml", "image/svg+xml"]
 
       private REDIRECT_CODES = {301, 302, 303, 307, 308}
 
@@ -52,18 +58,15 @@ module FsUtils
       # relative links in `body` resolve against and what a caller should
       # report rather than the address it asked for.
       #
-      # `body` is HTML unless `markdown?`, in which case the server answered
-      # the Accept header with Markdown and there is nothing to convert.
+      # `body` is whatever the server sent, and `content_type` says what that
+      # is. Deciding what to do with it belongs to the caller: this class
+      # fetches, and does not convert.
       record Page,
         url : String,
         status : Int32,
         content_type : String?,
         body : String,
-        bytes : Int64 do
-        def markdown? : Bool
-          !!content_type.try(&.downcase.ends_with?(MARKDOWN_SUFFIX))
-        end
-      end
+        bytes : Int64
 
       private record Redirect, location : String
 
@@ -72,6 +75,8 @@ module FsUtils
         property max_redirects = DEFAULT_MAX_REDIRECTS
         property timeout : Time::Span = 20.seconds
         property user_agent = DEFAULT_USER_AGENT
+        property accept : String = DEFAULT_ACCEPT
+        property accepted_types : Array(String) = DEFAULT_ACCEPTED_TYPES
         property host_policy : HostPolicy::Settings = HostPolicy::Settings.new
 
         def initialize
@@ -82,11 +87,13 @@ module FsUtils
           raise ArgumentError.new("max_redirects must not be negative") if max_redirects < 0
           raise ArgumentError.new("timeout must be positive") unless timeout > Time::Span.zero
           raise ArgumentError.new("user_agent must not be blank") if user_agent.blank?
+          raise ArgumentError.new("accept must not be blank") if accept.blank?
+          raise ArgumentError.new("accepted_types must name at least one type") if accepted_types.empty?
           host_policy.validate!
         end
 
-        # Shallow, so `host_policy` is shared by reference: replace it, never
-        # mutate it.
+        # Shallow, so `host_policy` and `accepted_types` are shared by
+        # reference: replace them, never mutate them.
         def copy : self
           dup
         end
@@ -173,7 +180,7 @@ module FsUtils
       private def headers : HTTP::Headers
         HTTP::Headers{
           "User-Agent" => @settings.user_agent,
-          "Accept"     => ACCEPT,
+          "Accept"     => @settings.accept,
         }
       end
 
@@ -193,10 +200,16 @@ module FsUtils
 
       private def check_type(uri : URI, response : HTTP::Client::Response) : Nil
         type = response.content_type.try(&.downcase)
-        return if type.nil? || HTML_TYPES.includes?(type) || type.ends_with?(MARKDOWN_SUFFIX)
+        return if type.nil? || accepted?(type)
         raise UnsupportedContentTypeError.new(
           "#{uri} answered #{type}, which this tool does not read",
-          "This tool reads HTML and Markdown pages. Fetch one of those, or handle this content another way.")
+          "This tool reads text. Fetch a page, a document or a data file, or handle this content another way.")
+      end
+
+      private def accepted?(type : String) : Bool
+        @settings.accepted_types.any? do |pattern|
+          pattern.ends_with?("/*") ? type.starts_with?(pattern[0, pattern.size - 1]) : type == pattern
+        end
       end
 
       # Reads in chunks so the cap is reached before the memory is.
