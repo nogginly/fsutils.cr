@@ -8,13 +8,14 @@ module FsUtils
     # hook, which is recorded in DESIGN.md as a constraint rather than left to
     # be discovered.
     module Names
-      FIND    = "find_files"
-      GREP    = "search_file_contents"
-      READ    = "read_text_file"
-      WRITE   = "write_text_file"
-      REPLACE = "text_replace"
+      FIND        = "find_files"
+      GREP        = "search_file_contents"
+      READ        = "read_text_file"
+      WRITE       = "write_text_file"
+      REPLACE     = "text_replace"
+      FETCH_AS_MD = "fetch_as_markdown"
 
-      ALL = [FIND, GREP, READ, WRITE, REPLACE]
+      ALL = [FIND, GREP, READ, WRITE, REPLACE, FETCH_AS_MD]
     end
 
     # One tool, as the three parts a host actually needs.
@@ -59,7 +60,7 @@ module FsUtils
 
       # Every tool, in a stable order.
       def all(config : Config = Config.new) : Array(Definition)
-        [find(config), grep(config), read(config), write(config), replace(config)]
+        [find(config), grep(config), read(config), write(config), replace(config), fetch_as_md(config)]
       end
 
       # The `find` tool, as this configuration bounds it.
@@ -283,6 +284,26 @@ module FsUtils
                 }
               },
               "required": ["path", "old_string", "new_string"]
+            }
+            JSON
+        )
+      end
+
+      # The `fetch_as_markdown` tool, as this configuration bounds it.
+      def fetch_as_md(config : Config = Config.new) : Definition
+        Definition.new(
+          name: Names::FETCH_AS_MD,
+          description: "Fetch a URL and return it as Markdown. An HTML page is converted to Markdown; a site that serves Markdown is used as it is; any other text -- CSV, JSON, XML, CSS, SVG, plain text -- is returned inside a fenced code block tagged with its type. Short results are returned in `content`. A longer one is written to a file in the workspace and its location and content are described instead, including an excerpt and a `toc` whose line numbers go to #{Names::READ} as `offset` and `limit`. A stored file opens with a front matter block naming the page it came from. Check `truncated` and `notice`: content over #{config.fetch.max_content_bytes} bytes is cut short. Only text is read.",
+          schema: <<-JSON
+            {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "Absolute http or https URL of the page to fetch."
+                }
+              },
+              "required": ["url"]
             }
             JSON
         )

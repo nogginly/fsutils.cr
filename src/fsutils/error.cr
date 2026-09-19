@@ -31,6 +31,12 @@ module FsUtils
     PARENT_NOT_DIRECTORY = "parent_not_directory"
     CONTENT_TOO_LARGE    = "content_too_large"
     WRITE_FAILED         = "write_failed"
+
+    # Fetching
+    HOST_NOT_ALLOWED         = "host_not_allowed"
+    FETCH_FAILED             = "fetch_failed"
+    HTTP_ERROR               = "http_error"
+    UNSUPPORTED_CONTENT_TYPE = "unsupported_content_type"
   end
 
   # Raised for caller error that a helper cannot recover from: a bad pattern,
@@ -81,4 +87,8 @@ module FsUtils
   def_error NotUniqueError, ErrorCode::NOT_UNIQUE
   def_error StringsIdenticalError, ErrorCode::STRINGS_IDENTICAL
   def_error EmptyOldStringError, ErrorCode::EMPTY_OLD_STRING
+  def_error HostNotAllowedError, ErrorCode::HOST_NOT_ALLOWED
+  def_error FetchFailedError, ErrorCode::FETCH_FAILED
+  def_error HttpError, ErrorCode::HTTP_ERROR
+  def_error UnsupportedContentTypeError, ErrorCode::UNSUPPORTED_CONTENT_TYPE
 end

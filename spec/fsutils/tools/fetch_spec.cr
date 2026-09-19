@@ -1,0 +1,373 @@
+require "../../spec_helper"
+require "http/server"
+
+private def with_server(&)
+  server = HTTP::Server.new { |context| respond(context) }
+  address = server.bind_unused_port("127.0.0.1")
+  spawn { server.listen }
+  Fiber.yield
+
+  begin
+    yield "http://127.0.0.1:#{address.port}"
+  ensure
+    server.close
+  end
+end
+
+private def respond(context : HTTP::Server::Context) : Nil
+  response = context.response
+  response.content_type = "text/html"
+
+  case context.request.path
+  when "/small"
+    response.print "<html><body><main><h1>Small</h1><p>A short page.</p></main></body></html>"
+  when "/long"
+    response.print long_page
+  when "/titled"
+    response.print "<html><head><title>A &amp; B: the page</title></head><body><p>Body.</p></body></html>"
+  when "/md"
+    response.content_type = "text/markdown"
+    response.print "# Served\n\nAlready Markdown, with a [link](/other).\n"
+  when "/bigmd"
+    response.content_type = "text/markdown"
+    response.print String.build { |io| 8.times { |index| io << "## Part " << index << "\n\n" << ("word " * 200) << "\n\n" } }
+  when "/csv"
+    response.content_type = "text/csv"
+    response.print "name,size\nalpha,1\nbeta,2\n"
+  when "/readme"
+    response.content_type = "text/plain"
+    response.print "# Thing\n\n```sh\nmake install\n```\n"
+  when "/bigcsv"
+    response.content_type = "text/csv"
+    response.print String.build { |io| io << "name,size\n"; 400.times { |index| io << "row" << index << "," << index << "\n" } }
+  when "/raw/doc.md"
+    response.content_type = "text/plain"
+    response.print "# Raw\n\nServed as plain text, as raw file endpoints do.\n"
+  when "/raw/data.json"
+    response.content_type = "text/plain"
+    response.print %({"name": "alpha"}\n)
+  when "/raw/notes.txt"
+    response.content_type = "text/plain"
+    response.print "just prose\n"
+  when "/binary"
+    response.content_type = "application/zip"
+    response.print "PK"
+  else
+    response.status_code = 404
+    response.print "<html><body>gone</body></html>"
+  end
+end
+
+private def long_page : String
+  String.build do |io|
+    io << "<html><head><title>Long</title></head><body><main>"
+    io << "<h1>Long</h1><p>Opening.</p>"
+    6.times do |index|
+      io << "<h2>Section " << index << "</h2><p>" << ("word " * 200) << "</p>"
+    end
+    io << "</main></body></html>"
+  end
+end
+
+private def with_tools(max_output_bytes : Int32 = 32_000, &)
+  root = ::File.join(Dir.tempdir, "fsutils-fetch-#{Random.rand(1_000_000)}")
+  Dir.mkdir_p(root)
+
+  config = FsUtils::Tools::Config.new
+  config.max_output_bytes = max_output_bytes
+  config.fetch.allow_private_hosts = true
+
+  begin
+    yield FsUtils::Tools.new(root, config), root
+  ensure
+    FileUtils.rm_rf(root)
+  end
+end
+
+describe "FsUtils::Tools#fetch_as_markdown" do
+  it "returns a short page inline" do
+    with_server do |base|
+      with_tools do |tools, root|
+        response = tools.fetch_as_markdown("#{base}/small")
+
+        response.ok?.should be_true
+        response.status.should eq 200
+        response.content.to_s.should contain "# Small"
+        response.path.should be_nil
+        Dir.exists?(::File.join(root, FsUtils::Tools::Scratch::DEFAULT_DIR)).should be_false
+      end
+    end
+  end
+
+  it "reads the title from the page's head, which the converter drops" do
+    with_server do |base|
+      with_tools do |tools, _|
+        tools.fetch_as_markdown("#{base}/titled").title.should eq "A & B: the page"
+      end
+    end
+  end
+
+  describe "a page too long to inline" do
+    it "writes it to the scratch area and describes it" do
+      with_server do |base|
+        with_tools(max_output_bytes: 500) do |tools, root|
+          response = tools.fetch_as_markdown("#{base}/long")
+
+          response.ok?.should be_true
+          response.content.should be_nil
+          path = response.path.to_s
+          path.should start_with FsUtils::Tools::Scratch::DEFAULT_DIR
+          ::File.exists?(::File.join(root, path)).should be_true
+          response.excerpt.to_s.should contain "# Long"
+        end
+      end
+    end
+
+    # The whole point of the table of contents: its numbers are what
+    # read_text_file takes, against the file as it was actually written.
+    it "indexes the file it wrote, front matter included" do
+      with_server do |base|
+        with_tools(max_output_bytes: 500) do |tools, root|
+          response = tools.fetch_as_markdown("#{base}/long")
+          toc = response.toc.not_nil!
+
+          toc.map(&.title).first.should eq "Long"
+          toc.map(&.level).should contain 2
+
+          lines = ::File.read(::File.join(root, response.path.to_s)).lines
+          lines[toc.first.start_line - 1].should eq "# Long"
+          response.lines.should eq lines.size
+        end
+      end
+    end
+
+    it "opens the file with front matter naming where it came from" do
+      with_server do |base|
+        with_tools(max_output_bytes: 500) do |tools, root|
+          response = tools.fetch_as_markdown("#{base}/long")
+
+          document = ::File.read(::File.join(root, response.path.to_s))
+          document.should start_with "---\n"
+          document.should contain %(source: "#{base}/long")
+        end
+      end
+    end
+
+    # Otherwise a later search turns up the agent's own spilled pages.
+    it "keeps the scratch area out of later searches" do
+      with_server do |base|
+        with_tools(max_output_bytes: 500) do |tools, _|
+          tools.fetch_as_markdown("#{base}/long")
+
+          found = tools.find(name: ["*.md"], include_hidden: true)
+          (found.results.try(&.map(&.path)) || [] of String).should be_empty
+
+          matched = tools.grep(pattern: "Section", include_hidden: true)
+          (matched.results.try(&.size) || 0).should eq 0
+        end
+      end
+    end
+  end
+
+  # A site that already speaks Markdown has done the work; the tool's job is
+  # then to apply the same bounds to it, not to convert it twice.
+  describe "a site that serves Markdown" do
+    it "uses what it was given" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.fetch_as_markdown("#{base}/md")
+
+          response.ok?.should be_true
+          response.content.to_s.should contain "[link](/other)"
+        end
+      end
+    end
+
+    it "takes its title from the first top-level heading" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/md").title.should eq "Served"
+        end
+      end
+    end
+
+    # Otherwise max_content_bytes would bound a converted page and nothing
+    # at all for a served one.
+    it "is bounded like a converted page" do
+      with_server do |base|
+        with_tools do |tools, root|
+          config = FsUtils::Tools::Config.new
+          config.fetch.allow_private_hosts = true
+          config.fetch.max_content_bytes = 400_i64
+          bounded = FsUtils::Tools.new(root, config)
+
+          response = bounded.fetch_as_markdown("#{base}/bigmd")
+
+          response.truncated.should be_true
+          response.bytes.not_nil!.should be <= 400
+          response.notice.to_s.should contain "block boundary"
+        end
+      end
+    end
+  end
+
+  # Markdown is the container. A model has seen far more CSV inside a
+  # ```csv fence than in any other presentation, and fencing costs nothing
+  # that converting would not cost more.
+  describe "text that is not a document" do
+    it "returns it verbatim inside a tagged fence" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.fetch_as_markdown("#{base}/csv")
+
+          response.ok?.should be_true
+          response.content_type.should eq "text/csv"
+          response.content.to_s.should start_with "```csv\n"
+          response.content.to_s.should contain "alpha,1"
+          response.title.should be_nil
+        end
+      end
+    end
+
+    # Three backticks would close at the content's own first code block, and
+    # the result is not malformed enough to look wrong.
+    it "opens a fence longer than any run inside the content" do
+      with_server do |base|
+        with_tools do |tools, _|
+          content = tools.fetch_as_markdown("#{base}/readme").content.to_s
+
+          content.should start_with "````text\n"
+          content.should end_with "````\n"
+          content.should contain "```sh"
+        end
+      end
+    end
+
+    # A blank line means nothing in a CSV, and an unclosed fence is the one
+    # truncation a reader cannot recover from.
+    it "cuts at a line and still closes the fence" do
+      with_server do |base|
+        with_tools do |tools, root|
+          config = FsUtils::Tools::Config.new
+          config.fetch.allow_private_hosts = true
+          config.fetch.max_content_bytes = 200_i64
+          bounded = FsUtils::Tools.new(root, config)
+
+          content = bounded.fetch_as_markdown("#{base}/bigcsv").content.to_s
+
+          content.should start_with "```csv\n"
+          content.should end_with "```\n"
+          content.lines[-2].should_not end_with ","
+        end
+      end
+    end
+  end
+
+  # A raw file endpoint answers text/plain for everything, deliberately and
+  # with nosniff. The header has declined to say anything, so the path is the
+  # better evidence -- but only then.
+  describe "content a server would not type" do
+    it "reads a .md served as plain text as the Markdown it is" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.fetch_as_markdown("#{base}/raw/doc.md")
+
+          response.content.to_s.should start_with "# Raw"
+          response.content.to_s.should_not contain "```"
+          response.title.should eq "Raw"
+        end
+      end
+    end
+
+    # The server's own answer is what the response and the front matter
+    # record; the inference only decides what was done with it.
+    it "still reports the type the server declared" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/raw/doc.md").content_type.should eq "text/plain"
+        end
+      end
+    end
+
+    it "tags the fence from the path when the header will not say" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/raw/data.json").content.to_s.should start_with "```json\n"
+        end
+      end
+    end
+
+    it "falls back to a plain fence with nothing to go on" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/raw/notes.txt").content.to_s.should start_with "```text\n"
+        end
+      end
+    end
+
+    # A server that names a type means it, even when the path disagrees.
+    it "believes a declared type over the path" do
+      with_server do |base|
+        with_tools do |tools, _|
+          tools.fetch_as_markdown("#{base}/csv").content.to_s.should start_with "```csv\n"
+        end
+      end
+    end
+  end
+
+  describe "failures a caller can act on" do
+    it "answers rather than raises for content that is not text" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.fetch_as_markdown("#{base}/binary")
+
+          response.ok?.should be_false
+          response.error.try(&.code).should eq FsUtils::ErrorCode::UNSUPPORTED_CONTENT_TYPE
+        end
+      end
+    end
+
+    it "answers rather than raises for a missing page" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.fetch_as_markdown("#{base}/nowhere")
+
+          response.ok?.should be_false
+          response.error.try(&.code).should eq FsUtils::ErrorCode::HTTP_ERROR
+        end
+      end
+    end
+
+    it "answers rather than raises for a host it may not reach" do
+      root = ::File.join(Dir.tempdir, "fsutils-fetch-#{Random.rand(1_000_000)}")
+      Dir.mkdir_p(root)
+
+      begin
+        response = FsUtils::Tools.new(root).fetch_as_markdown("http://127.0.0.1:1/page")
+
+        response.ok?.should be_false
+        response.error.try(&.code).should eq FsUtils::ErrorCode::HOST_NOT_ALLOWED
+      ensure
+        FileUtils.rm_rf(root)
+      end
+    end
+  end
+
+  describe "by name" do
+    it "dispatches and serialises" do
+      with_server do |base|
+        with_tools do |tools, _|
+          response = tools.call(FsUtils::Tools::Names::FETCH_AS_MD,
+            {"url" => JSON::Any.new("#{base}/small")})
+
+          response.ok?.should be_true
+          JSON.parse(response.to_json)["content"].as_s.should contain "# Small"
+        end
+      end
+    end
+
+    it "is published with the others" do
+      FsUtils::Tools::Definitions.all.map(&.name).should contain FsUtils::Tools::Names::FETCH_AS_MD
+    end
+  end
+end

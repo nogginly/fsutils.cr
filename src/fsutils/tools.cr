@@ -3,9 +3,11 @@ require "json"
 require "./tools/config"
 require "./tools/envelope"
 require "./tools/sandbox"
+require "./tools/scratch"
 require "./tools/read"
 require "./tools/write"
 require "./tools/replace"
+require "./tools/fetch"
 require "./tools/schemas"
 require "./tools/call"
 
@@ -109,12 +111,14 @@ module FsUtils
 
     getter sandbox : Sandbox
     getter config : Config
+    getter scratch : Scratch
 
     @definitions : Array(Definition)? = nil
 
     def initialize(root : String, @config : Config = Config.new)
       @config.validate!
       @sandbox = Sandbox.new(root)
+      @scratch = Scratch.new(@sandbox, @config.scratch.to_settings(@config.max_output_bytes))
     end
 
     def max_output_bytes : Int32
@@ -148,6 +152,7 @@ module FsUtils
       settings.max_matches = max_matches || settings.max_matches
       settings.include_hidden = include_hidden.nil? ? settings.include_hidden? : include_hidden
       settings.timeout = timeout_seconds ? timeout_seconds.seconds : settings.timeout
+      skip_scratch(settings)
       settings
     end
 
@@ -161,7 +166,18 @@ module FsUtils
       settings.max_depth = max_depth || settings.max_depth
       settings.include_hidden = include_hidden.nil? ? settings.include_hidden? : include_hidden
       settings.timeout = timeout_seconds ? timeout_seconds.seconds : settings.timeout
+      skip_scratch(settings)
       settings
+    end
+
+    # A tool's own spilled output is not a search result. The list is
+    # replaced rather than appended to: `Settings#copy` is shallow and the
+    # default list is a shared constant, so `<<` here would poison every
+    # later search in the process.
+    private def skip_scratch(settings : Walk::Settings) : Nil
+      dir = @scratch.dir
+      return if settings.skip_dirs.includes?(dir)
+      settings.skip_dirs = settings.skip_dirs + [dir]
     end
 
     # ------------------------------------------------------------------ #

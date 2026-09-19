@@ -153,6 +153,83 @@ module FsUtils
         end
       end
 
+      # Bounds `fetch_as_markdown`, and guards where it may go.
+      #
+      # `allowed_hosts` is nil when there is no allowlist. An empty array is
+      # an allowlist naming nothing, which permits nothing -- a list means
+      # exactly what it contains. `denied_hosts` is never nil for the same
+      # reason read the other way: an empty denylist forbids nothing.
+      class Fetch
+        include YAML::Serializable
+        include JSON::Serializable
+
+        property max_page_bytes : Int64 = FsUtils::Web::Fetcher::DEFAULT_MAX_PAGE_BYTES.to_i64
+        property max_content_bytes : Int64 = 4_194_304_i64
+        property timeout_seconds : Float64 = 20.0
+        property max_redirects : Int32 = FsUtils::Web::Fetcher::DEFAULT_MAX_REDIRECTS
+        property user_agent : String = FsUtils::Web::Fetcher::DEFAULT_USER_AGENT
+        property? allow_private_hosts : Bool = false
+        property allowed_hosts : Array(String)? = nil
+        property denied_hosts : Array(String) = [] of String
+        # Nil leaves the fetcher's own default, which is any text type plus
+        # JSON, XML and SVG. A list replaces it outright.
+        property accepted_types : Array(String)? = nil
+
+        def initialize
+        end
+
+        def to_settings : FsUtils::Web::Fetcher::Settings
+          settings = FsUtils::Web::Fetcher::Settings.new
+          settings.max_page_bytes = max_page_bytes
+          settings.max_redirects = max_redirects
+          settings.timeout = timeout_seconds.seconds
+          settings.user_agent = user_agent
+          settings.host_policy = host_policy
+          if types = accepted_types
+            settings.accepted_types = types
+          end
+          settings
+        end
+
+        private def host_policy : FsUtils::Web::HostPolicy::Settings
+          policy = FsUtils::Web::HostPolicy::Settings.new
+          policy.allowed_hosts = allowed_hosts
+          policy.denied_hosts = denied_hosts
+          policy.allow_private_hosts = allow_private_hosts?
+          policy
+        end
+      end
+
+      # Where output too large to return inline is kept.
+      #
+      # `dir` is relative to the workspace root and hidden by default, and
+      # `find` and `grep` skip it, so a tool's own spilled output does not
+      # turn up in that tool's own later searches.
+      class Scratch
+        include YAML::Serializable
+        include JSON::Serializable
+
+        property dir : String = FsUtils::Tools::Scratch::DEFAULT_DIR
+        property excerpt_chars : Int32 = FsUtils::Tools::Scratch::DEFAULT_EXCERPT_CHARS
+        property max_headings : Int32 = FsUtils::Tools::Scratch::DEFAULT_MAX_HEADINGS
+
+        def initialize
+        end
+
+        # The threshold between inlining and spilling is `max_output_bytes`
+        # rather than a number of its own: "how much may a response be" is
+        # one question, already answered once, and a second answer would let
+        # a page spill at a size a search would inline.
+        def to_settings(max_inline_bytes : Int32) : FsUtils::Tools::Scratch::Settings
+          settings = FsUtils::Tools::Scratch::Settings.new
+          settings.dir = dir
+          settings.max_inline_bytes = max_inline_bytes
+          settings.excerpt_chars = excerpt_chars
+          settings.max_headings = max_headings
+          settings
+        end
+      end
+
       # Serialised bytes beyond this are dropped from any response.
       property max_output_bytes : Int32 = DEFAULT_MAX_OUTPUT_BYTES
 
@@ -184,6 +261,8 @@ module FsUtils
       property read : Read = Read.new
       property write : Write = Write.new
       property replace : Replace = Replace.new
+      property scratch : Scratch = Scratch.new
+      property fetch : Fetch = Fetch.new
 
       def initialize
       end
@@ -199,6 +278,9 @@ module FsUtils
         read.to_settings.validate!
         write.to_settings.validate!
         replace.to_settings.validate!
+        scratch.to_settings(max_output_bytes).validate!
+        fetch.to_settings.validate!
+        raise ArgumentError.new("fetch.max_content_bytes must be positive") if fetch.max_content_bytes < 1
       end
     end
   end
