@@ -125,7 +125,7 @@ describe "FsUtils::Tools#read" do
     it "refuses a path outside the workspace" do
       with_read_tools do |tools, _, _|
         json = read_json(tools.read(path: "../outside/secret.txt"))
-        json["error"]["code"].as_s.should eq "path_outside_sandbox"
+        json["error"]["code"].as_s.should eq "path_outside_workspace"
       end
     end
 

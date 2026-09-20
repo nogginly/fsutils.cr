@@ -22,7 +22,7 @@ module FsUtils
       # A member of the typed error family rather than a special case, so the
       # tool layer reads its code like any other and no `case` has to remember
       # to test it before `FsUtils::Error`.
-      class Escape < FsUtils::OutsideSandboxError
+      class Escape < FsUtils::OutsideWorkspaceError
       end
 
       # The canonical root. Absolute, symlinks resolved, no trailing separator.

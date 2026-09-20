@@ -138,7 +138,7 @@ describe "FsUtils::Tools#text_replace" do
         json = replace_json(tools.text_replace(
           path: "../outside/secret.txt", old_string: "target", new_string: "x"))
 
-        json["error"]["code"].as_s.should eq "path_outside_sandbox"
+        json["error"]["code"].as_s.should eq "path_outside_workspace"
         File.read(File.join(base, "outside", "secret.txt")).should eq "target\n"
       end
     end
