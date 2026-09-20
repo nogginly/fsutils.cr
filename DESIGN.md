@@ -1029,10 +1029,10 @@ cannot drift.
 
 ### Tool definitions
 
-Each tool ships as a `Definition` — `name`, `description` and `schema` — built
-for a configuration by `Definitions.all` and offered per instance as
-`Tools#definitions`. The schema is the documentation the model actually reads,
-so limits and their defaults are described in it explicitly.
+Each tool ships as a `Definition` — `name`, `description`, `schema` and
+`capabilities` — built for a configuration by `Definitions.all` and offered
+per instance as `Tools#definitions`. The schema is the documentation the model
+actually reads, so limits and their defaults are described in it explicitly.
 
 Which is why they are built rather than fixed. Stating a default of 200 in a
 constant was true until `Config` let a host set 20 underneath it, and a schema
@@ -1053,7 +1053,7 @@ is not an oversight: a host's numbers change what the schemas say, never which
 parameters exist, so the accepted keys are configuration-independent and making
 them instance state would give `Arguments` a dependency on `Tools` for nothing.
 
-The three parts are published separately rather than as a ready-made tool
+The parts are published separately rather than as a ready-made tool
 definition, because there is no neutral bundled shape: Anthropic keys the
 parameter schema `input_schema`, OpenAI and Gemini key it `parameters`. Shipping
 one of those would have made this an Anthropic artifact that other hosts take
@@ -1061,6 +1061,77 @@ apart again — and assembling a structure is safe where parsing one back apart 
 where things go wrong. The schemas stay inside the subset all three vendors
 accept: no `$ref`, no `oneOf`, no `format`, which a spec enforces so a
 convenient keyword cannot creep in and fail at the vendor instead of at home.
+
+**`capabilities` is the fourth part, and it is not a contradiction of the
+paragraph above.** That objection is to protocol *shape* — `input_schema`
+against `parameters` — not to a `Definition` having more than three fields. A
+capability is a vendor-neutral fact about the tool, in the same category as its
+name, and it is never registered with the model at all: it is what a host reads
+*before* deciding whether to register the tool.
+
+It is here because every host that offers "read but do not edit" or "no egress"
+otherwise keeps a table keyed by this shard's tool names, and that table is a
+restatement of facts this shard already knows. Two tests decided it. Would the
+next host write the same thing? Yes -- whether `text_replace` writes is a fact
+about `text_replace`, and two hosts that disagree are not exercising taste, one
+is wrong. And can a host infer it? That was arguable while every tool was a
+filesystem tool with a self-describing name, and `fetch_as_markdown` ended the
+argument: nothing in the name says it spills large pages onto disk, so a host
+classifying by eye gets it wrong in the direction that matters. The field is
+required rather than defaulted for the same reason -- `Capability::None` would
+compile everywhere and fail open, which is the wrong direction for a value
+whose consumers are safety gates.
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart LR
+    T["a tool"] --> Q1{{"does workspace content<br/>reach the caller?"}}
+    Q1 -->|yes| WR["WorkspaceRead"]
+    T --> Q2{{"whose files does<br/>it change?"}}
+    Q2 -->|the user's| WW["WorkspaceWrite"]
+    Q2 -->|its own, in scratch| SW["ScratchWrite"]
+    T --> Q3{{"does it leave<br/>the machine?"}}
+    Q3 -->|yes| N["Network"]
+
+    classDef guard stroke:#ef6c00,stroke-width:3px
+    class Q1,Q2,Q3 guard
+```
+
+**The four members are drawn on two axes, not four.** `WorkspaceRead`,
+`WorkspaceWrite` and `ScratchWrite` are the file axis, distinguished by
+direction and then by *ownership*: both writes land inside the workspace, and
+what separates them is that one touches a file somebody else wrote. That is the
+distinction an operator protecting their work is actually gating on, and it is
+why a no-edit run can still let `fetch_as_markdown` spill -- a tool that cannot
+store a page too large to inline loses the most useful thing it does, while
+nothing the user wrote is at risk either way. `Network` is the other axis, and
+it is deliberately not split into reading and writing, because the split is not
+knowable from here: a GET may change a server and this shard cannot tell. The
+names carry the axis for the same reason -- a hypothetical `upload` declaring
+`WorkspaceRead | Network` says which end is which, where a bare `Read` would
+not.
+
+`WorkspaceRead`'s test is whether content read off disk reaches the caller or
+shapes the answer, not whether a file was opened. So `write_text_file` does not
+declare it -- it reports a path, a byte count and nothing of what was there --
+while `text_replace` does, because its hunks carry the surrounding lines back.
+`fetch_as_markdown` does not either: it reads the network, and reading the
+spilled file back is `read_text_file`'s capability, not its.
+
+**Static, not derived from `Config`.** Descriptions vary by configuration
+because the numbers a model reads have to be the numbers in force; capabilities
+do not, because what a tool *touches* is fixed and what it is *permitted* is
+the policy's business. `fetch_as_markdown` still declares `Network` under an
+allowlist that refuses every URL. This is the line `Arguments::ACCEPTED`
+already holds, read from the other side.
+
+**And nothing more than the declaration.** No filtering helper, no
+`definitions(only:)`. The shard says what a tool touches; which of those a host
+allows is the host's question, and a shard answering both invites a policy
+argument it has no standing in.
 
 **Tool names are fixed, and this is a constraint rather than an oversight.** A
 host that wants to namespace them — because another toolkit in the same process
@@ -1094,7 +1165,10 @@ Next, in rough order:
    building only where a host has other tooling or an agent is assembling
    files rather than reading them. Note that it has no conversion step, so
    the size bound is the only bound, and the scratch directory becomes
-   somewhere binaries live.
+   somewhere binaries live. Where it lands them decides its capabilities --
+   `Network | ScratchWrite` if it spills like `fetch_as_markdown`,
+   `Network | WorkspaceWrite` if a caller names the path -- and that is worth
+   settling as a design question rather than discovering as a declaration.
 
 4. `ls` with metadata, and `tree` with a depth cap. Both are now cheaper than
    this list once implied: adding a name is four edits -- `Names`,

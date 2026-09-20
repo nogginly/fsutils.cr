@@ -226,15 +226,38 @@ normal error response in the usual envelope. Nothing is coerced: a
 
 The six typed methods are unchanged and remain the API for Crystal callers.
 
-`Tools#definitions` publishes each tool as its three parts — `name`,
-`description` and `schema` — so a host can register them without hand-writing a
-description that drifts from the code:
+`Tools#definitions` publishes each tool as its parts — `name`, `description`,
+`schema` and `capabilities` — so a host can register them without hand-writing
+a description that drifts from the code:
 
 ```crystal
 tools.definitions.each do |tool|
   host.register(tool.name, tool.description, tool.schema)
 end
 ```
+
+`capabilities` says what the tool touches, so a host offering a restricted mode
+does not have to keep its own table of tool names:
+
+Capability      |Tools                                                                 
+----------------|----------------------------------------------------------------------
+`WorkspaceRead` |`find_files`, `search_file_contents`, `read_text_file`, `text_replace`
+`WorkspaceWrite`|`write_text_file`, `text_replace`                                     
+`ScratchWrite`  |`fetch_as_markdown`                                                   
+`Network`       |`fetch_as_markdown`                                                   
+
+```crystal
+tools.definitions.reject { |tool| tool.capabilities.workspace_write? }
+```
+
+`WorkspaceRead` means workspace content reaches the caller: `text_replace`
+declares it because its hunks carry the surrounding lines, `write_text_file`
+does not because it reports a path and a byte count and nothing of what was
+there. `ScratchWrite` is separate from `WorkspaceWrite` by ownership, so a
+no-edit run can still let `fetch_as_markdown` store a page too large to return
+inline. These describe what a tool *touches*, not what it is *permitted* —
+`fetch_as_markdown` declares `Network` even under an allowlist that refuses
+every URL.
 
 ### Fetching a URL
 
