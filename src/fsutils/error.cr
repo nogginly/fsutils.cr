@@ -7,10 +7,10 @@ module FsUtils
   # tool layer is free to map these to whatever an agent should see.
   module ErrorCode
     # Searching
-    OUTSIDE_SANDBOX  = "path_outside_sandbox"
-    NOT_FOUND        = "path_not_found"
-    INVALID_PATTERN  = "invalid_pattern"
-    INVALID_ARGUMENT = "invalid_argument"
+    OUTSIDE_WORKSPACE = "path_outside_workspace"
+    NOT_FOUND         = "path_not_found"
+    INVALID_PATTERN   = "invalid_pattern"
+    INVALID_ARGUMENT  = "invalid_argument"
 
     # Reading
     IS_DIRECTORY      = "is_directory"
@@ -82,7 +82,7 @@ module FsUtils
   def_error ParentNotDirectoryError, ErrorCode::PARENT_NOT_DIRECTORY
   def_error WriteFailedError, ErrorCode::WRITE_FAILED
   def_error InvalidPatternError, ErrorCode::INVALID_PATTERN
-  def_error OutsideSandboxError, ErrorCode::OUTSIDE_SANDBOX
+  def_error OutsideWorkspaceError, ErrorCode::OUTSIDE_WORKSPACE
   def_error NoMatchError, ErrorCode::NO_MATCH
   def_error NotUniqueError, ErrorCode::NOT_UNIQUE
   def_error StringsIdenticalError, ErrorCode::STRINGS_IDENTICAL

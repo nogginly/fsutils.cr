@@ -2,7 +2,7 @@ require "digest/sha256"
 
 module FsUtils
   class Tools
-    # Holds output too large to return inline, as a file inside the sandbox.
+    # Holds output too large to return inline, as a file inside the workspace.
     #
     # ```
     # held = scratch.hold("https://example.com/docs", markdown, {"source" => "https://example.com/docs"})
@@ -17,7 +17,7 @@ module FsUtils
     # back with `read_text_file`, an index of where things are in it, and
     # enough of the opening to judge whether it is worth reading.
     #
-    # The directory lives *inside* the sandbox root, because a model that
+    # The directory lives *inside* the workspace root, because a model that
     # cannot read the file back has been given a path it can do nothing with.
     # It is hidden, and `find` and `grep` skip it, so a tool's own spilled
     # output never turns up in that tool's own later searches.
@@ -53,7 +53,7 @@ module FsUtils
 
       # Content written to the scratch directory.
       #
-      # `path` is relative to the sandbox root, ready to hand back to a model
+      # `path` is relative to the workspace root, ready to hand back to a model
       # and to pass to `read_text_file`. Heading line numbers count the front
       # matter, because they are only useful if they address the file as it
       # actually is.
@@ -89,7 +89,7 @@ module FsUtils
 
       getter settings : Settings
 
-      def initialize(@sandbox : Sandbox, @settings : Settings = Settings.new)
+      def initialize(@workspace : Workspace, @settings : Settings = Settings.new)
         @settings.validate!
       end
 
@@ -116,7 +116,7 @@ module FsUtils
         headings, truncated = cap(outline.headings)
 
         Stored.new(
-          path: @sandbox.relative(resolved),
+          path: @workspace.relative(resolved),
           bytes: document.bytesize.to_i64,
           lines: outline.line_count,
           excerpt: excerpt(content),
@@ -125,9 +125,9 @@ module FsUtils
       end
 
       private def write(name : String, document : String) : String
-        directory = @sandbox.resolve(@settings.dir)
+        directory = @workspace.resolve(@settings.dir)
         ::Dir.mkdir_p(directory)
-        resolved = @sandbox.resolve(::File.join(@settings.dir, name))
+        resolved = @workspace.resolve(::File.join(@settings.dir, name))
         ::File.write(resolved, document)
         resolved
       rescue ex : ::File::Error | IO::Error

@@ -30,7 +30,7 @@ describe FsUtils::Error do
         FsUtils::ParentNotDirectoryError => FsUtils::ErrorCode::PARENT_NOT_DIRECTORY,
         FsUtils::WriteFailedError        => FsUtils::ErrorCode::WRITE_FAILED,
         FsUtils::InvalidPatternError     => FsUtils::ErrorCode::INVALID_PATTERN,
-        FsUtils::OutsideSandboxError     => FsUtils::ErrorCode::OUTSIDE_SANDBOX,
+        FsUtils::OutsideWorkspaceError   => FsUtils::ErrorCode::OUTSIDE_WORKSPACE,
       }.each do |klass, code|
         klass.new("message").code.should eq code
       end
@@ -46,10 +46,10 @@ describe FsUtils::Error do
       rescued.code.should eq FsUtils::ErrorCode::NOT_FOUND
     end
 
-    it "puts the sandbox escape in the same family" do
+    it "puts the workspace escape in the same family" do
       # So no `case` has to remember to test it before FsUtils::Error.
-      FsUtils::Tools::Sandbox::Escape.new("out").code
-        .should eq FsUtils::ErrorCode::OUTSIDE_SANDBOX
+      FsUtils::Tools::Workspace::Escape.new("out").code
+        .should eq FsUtils::ErrorCode::OUTSIDE_WORKSPACE
     end
   end
 

@@ -110,7 +110,7 @@ rather than half-finish.
 
 `FsUtils::Tools` wraps the helpers for use as tool calls. Where the helpers
 stream, are typed, and raise on caller error, this layer buffers, serialises,
-confines every path to a sandbox, and **never raises** — an exception is a stack
+confines every path to a workspace, and **never raises** — an exception is a stack
 trace in someone's tool harness, whereas a JSON error is something a model can
 read and recover from.
 
@@ -180,9 +180,9 @@ Every response has the same shape, so a model learns it once:
 
 Four things to know:
 
-- **Paths are relative to the sandbox root**, going in and coming back. Anything
+- **Paths are relative to the workspace root**, going in and coming back. Anything
   resolving outside it — via `..`, an absolute path, or a symlink — is refused
-  with `path_outside_sandbox` rather than followed.
+  with `path_outside_workspace` rather than followed.
 - **A failure carries advice, not just a code.** `{"ok": false, "error": {...}}`
   has a `message` saying what happened and, where there is something useful to
   say, a `suggestion` saying what to do instead — a `find_files` call to locate
@@ -226,9 +226,9 @@ normal error response in the usual envelope. Nothing is coerced: a
 
 The six typed methods are unchanged and remain the API for Crystal callers.
 
-`Tools#definitions` publishes each tool as its three parts — `name`,
-`description` and `schema` — so a host can register them without hand-writing a
-description that drifts from the code:
+`Tools#definitions` publishes each tool as its parts — `name`, `description`,
+`schema` and `capabilities` — so a host can register them without hand-writing
+a description that drifts from the code:
 
 ```crystal
 tools.definitions.each do |tool|
@@ -236,10 +236,33 @@ tools.definitions.each do |tool|
 end
 ```
 
+`capabilities` says what the tool touches, so a host offering a restricted mode
+does not have to keep its own table of tool names:
+
+Capability      |Tools                                                                 
+----------------|----------------------------------------------------------------------
+`WorkspaceRead` |`find_files`, `search_file_contents`, `read_text_file`, `text_replace`
+`WorkspaceWrite`|`write_text_file`, `text_replace`                                     
+`ScratchWrite`  |`fetch_as_markdown`                                                   
+`Network`       |`fetch_as_markdown`                                                   
+
+```crystal
+tools.definitions.reject { |tool| tool.capabilities.workspace_write? }
+```
+
+`WorkspaceRead` means workspace content reaches the caller: `text_replace`
+declares it because its hunks carry the surrounding lines, `write_text_file`
+does not because it reports a path and a byte count and nothing of what was
+there. `ScratchWrite` is separate from `WorkspaceWrite` by ownership, so a
+no-edit run can still let `fetch_as_markdown` store a page too large to return
+inline. These describe what a tool *touches*, not what it is *permitted* —
+`fetch_as_markdown` declares `Network` even under an allowlist that refuses
+every URL.
+
 ### Fetching a URL
 
 `fetch_as_markdown` fetches an HTML page and returns it as Markdown. It is the one
-tool here that leaves the machine, and the only one the sandbox cannot protect,
+tool here that leaves the machine, and the only one the workspace cannot protect,
 so it carries a guard of its own.
 
 ```crystal
@@ -293,7 +316,7 @@ nothing in a CSV. Fencing happens after the cut, so a truncated data file still
 closes its fence. What survives is returned inline only if it fits `max_output_bytes`. A
 page of boilerplate shrinks under conversion; a page of dense tables grows.
 
-**Where it may go is checked by resolving, then comparing** — the sandbox's own
+**Where it may go is checked by resolving, then comparing** — the workspace's own
 rule, applied to a host instead of a path. The name is checked against
 `allowed_hosts` and `denied_hosts`, then resolved, and every address it answers
 with is checked against the loopback, link-local and private ranges. A redirect

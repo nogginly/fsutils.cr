@@ -131,12 +131,12 @@ describe FsUtils::Tools do
     end
   end
 
-  describe "the sandbox" do
+  describe "the workspace" do
     it "refuses a path that climbs out" do
       with_tools do |tools, _, _|
         json = parse(tools.grep(pattern: "TODO", paths: ["../outside"]))
         json["ok"].as_bool.should be_false
-        json["error"]["code"].as_s.should eq "path_outside_sandbox"
+        json["error"]["code"].as_s.should eq "path_outside_workspace"
       end
     end
 
@@ -144,7 +144,7 @@ describe FsUtils::Tools do
       with_tools do |tools, _, base|
         json = parse(tools.find(paths: [File.join(base, "outside")]))
         json["ok"].as_bool.should be_false
-        json["error"]["code"].as_s.should eq "path_outside_sandbox"
+        json["error"]["code"].as_s.should eq "path_outside_workspace"
       end
     end
 
@@ -153,7 +153,7 @@ describe FsUtils::Tools do
         File.symlink(File.join(base, "outside"), File.join(root, "escape"))
         json = parse(tools.grep(pattern: "TODO", paths: ["escape"]))
         json["ok"].as_bool.should be_false
-        json["error"]["code"].as_s.should eq "path_outside_sandbox"
+        json["error"]["code"].as_s.should eq "path_outside_workspace"
       end
     end
 
@@ -166,7 +166,7 @@ describe FsUtils::Tools do
       end
     end
 
-    it "tells the caller what the sandbox rule is" do
+    it "tells the caller what the workspace rule is" do
       with_tools do |tools, _, _|
         json = parse(tools.grep(pattern: "TODO", paths: ["../outside"]))
         json["error"]["suggestion"].as_s.should contain "workspace"

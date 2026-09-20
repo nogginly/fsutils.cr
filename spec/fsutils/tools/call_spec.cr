@@ -182,7 +182,7 @@ describe "FsUtils::Tools#call" do
         json = call(tools, "read_text_file", %({"path": "../outside.txt"}))
 
         json["ok"].as_bool.should be_false
-        json["error"]["code"].as_s.should eq FsUtils::ErrorCode::OUTSIDE_SANDBOX
+        json["error"]["code"].as_s.should eq FsUtils::ErrorCode::OUTSIDE_WORKSPACE
       end
     end
   end

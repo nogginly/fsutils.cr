@@ -60,7 +60,7 @@ module FsUtils
       limit : Int32? = nil,
       line_numbers : Bool = true,
     ) : ReadResponse
-      resolved = @sandbox.resolve(path)
+      resolved = @workspace.resolve(path)
       unless ::File.exists?(resolved)
         return ReadResponse.failure(*not_found(resolved))
       end
@@ -99,7 +99,7 @@ module FsUtils
       ).read
     end
 
-    # `Sandbox::Escape` is a `FsUtils::Error`, so the order of these branches
+    # `Workspace::Escape` is a `FsUtils::Error`, so the order of these branches
     # is the specific-first order they are written in.
     private def read_failure(ex : Exception) : ReadResponse
       case ex
@@ -113,7 +113,7 @@ module FsUtils
     private def success(resolved : String, result, offset : Int32?) : ReadResponse
       ReadResponse.new(
         ok: true,
-        path: @sandbox.relative(resolved),
+        path: @workspace.relative(resolved),
         content: result.content,
         range: LineRange.new(result.first_line, result.last_line),
         total_lines: result.total_lines,

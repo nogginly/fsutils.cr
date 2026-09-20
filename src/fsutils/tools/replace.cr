@@ -67,7 +67,7 @@ module FsUtils
       new_string : String,
       replace_all : Bool = false,
     ) : ReplaceResponse
-      resolved = @sandbox.resolve(path)
+      resolved = @workspace.resolve(path)
       unless ::File.exists?(resolved)
         return ReplaceResponse.failure(*not_found(resolved))
       end
@@ -82,7 +82,7 @@ module FsUtils
 
       ReplaceResponse.new(
         ok: true,
-        path: @sandbox.relative(resolved),
+        path: @workspace.relative(resolved),
         replacements: result.replacements,
         lines_delta: result.lines_delta,
         hunks: result.hunks.map { |hunk| HunkResult.new(hunk) },

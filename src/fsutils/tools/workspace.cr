@@ -12,17 +12,17 @@ module FsUtils
     # prefix check.
     #
     # ```
-    # sandbox = FsUtils::Tools::Sandbox.new("/srv/project")
-    # sandbox.resolve("src/main.cr") # => "/srv/project/src/main.cr"
-    # sandbox.resolve("../etc")      # raises Escape
+    # workspace = FsUtils::Tools::Workspace.new("/srv/project")
+    # workspace.resolve("src/main.cr") # => "/srv/project/src/main.cr"
+    # workspace.resolve("../etc")      # raises Escape
     # ```
-    struct Sandbox
+    struct Workspace
       # Raised when a requested path resolves outside the root.
       #
       # A member of the typed error family rather than a special case, so the
       # tool layer reads its code like any other and no `case` has to remember
       # to test it before `FsUtils::Error`.
-      class Escape < FsUtils::OutsideSandboxError
+      class Escape < FsUtils::OutsideWorkspaceError
       end
 
       # The canonical root. Absolute, symlinks resolved, no trailing separator.
@@ -34,18 +34,18 @@ module FsUtils
         @root = begin
           ::File.realpath(expanded)
         rescue ex : ::File::Error | IO::Error
-          raise FsUtils::Error.new("sandbox root #{root.inspect} is unusable: #{ex.message}")
+          raise FsUtils::Error.new("workspace root #{root.inspect} is unusable: #{ex.message}")
         end
 
         unless ::File.directory?(@root)
-          raise FsUtils::Error.new("sandbox root #{root.inspect} is not a directory")
+          raise FsUtils::Error.new("workspace root #{root.inspect} is not a directory")
         end
       end
 
       # Resolves a requested path and confirms it lands inside the root.
       #
       # The path need not exist: a lookup of a missing file *inside* the
-      # sandbox should fail later as an honest "not found", not here as a
+      # workspace should fail later as an honest "not found", not here as a
       # resolution error. Raises `Escape` if it lands outside.
       def resolve(requested : String) : String
         joined = if requested.empty?
@@ -60,7 +60,7 @@ module FsUtils
         candidate = canonical(::File.expand_path(joined))
         unless inside?(candidate)
           raise Escape.new(
-            "path #{requested.inspect} resolves outside the sandbox",
+            "path #{requested.inspect} resolves outside the workspace",
             "Paths must stay inside the workspace. Use a path relative to its root, without `..`, and do not follow symlinks out of it.")
         end
         candidate

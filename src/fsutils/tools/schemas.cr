@@ -18,7 +18,7 @@ module FsUtils
       ALL = [FIND, GREP, READ, WRITE, REPLACE, FETCH_AS_MD]
     end
 
-    # One tool, as the three parts a host actually needs.
+    # One tool, as the parts a host actually needs.
     #
     # Deliberately not a protocol-shaped blob. Anthropic spells the parameter
     # schema `input_schema` where OpenAI and Gemini spell it `parameters`, so
@@ -26,8 +26,15 @@ module FsUtils
     # interpolation; taking one apart is parsing, which is the direction that
     # goes wrong.
     #
+    # That objection is to protocol shape, not to size, which is why
+    # `capabilities` belongs here: it is a vendor-neutral fact about the tool,
+    # in the same category as its name, and every host needs it for the same
+    # reason. It is not registered with the model; it is what a host consults
+    # before deciding whether to register the tool at all.
+    #
     # ```
     # tools.definitions.each do |tool|
+    #   next if tool.capabilities.workspace_write? && no_edit
     #   host.register(tool.name, tool.description, tool.schema)
     # end
     # ```
@@ -42,7 +49,11 @@ module FsUtils
       getter description : String
       getter schema : String
 
-      def initialize(@name : String, @description : String, @schema : String)
+      # What the tool touches. See `Capability`.
+      getter capabilities : Capability
+
+      def initialize(@name : String, @description : String, @schema : String,
+                     @capabilities : Capability)
       end
     end
 
@@ -68,6 +79,7 @@ module FsUtils
         Definition.new(
           name: Names::FIND,
           description: "Find files and directories by name, path, type, depth or size. Breadth-first and bounded: shallow results arrive before deep ones, and every search has caps. Check `truncated` and `notice` — a short result may be a sample, not the whole answer. At most #{config.find.max_entries_scanned} entries are examined per search. All paths are relative to the workspace root; paths outside it are refused.",
+          capabilities: Capability::WorkspaceRead,
           schema: <<-JSON
             {
               "type": "object",
@@ -129,6 +141,7 @@ module FsUtils
         Definition.new(
           name: Names::GREP,
           description: "Search file contents by regular expression. Binary files, files over #{config.grep.max_file_bytes} bytes and the usual noise directories (.git, node_modules, vendor, build) are skipped automatically. Bounded: check `truncated` and `notice`, because a short result may be a sample. Use mode \"paths\" first when the question is which files mention something — it is far cheaper than reading every matching line. All paths are relative to the workspace root; paths outside it are refused.",
+          capabilities: Capability::WorkspaceRead,
           schema: <<-JSON
             {
               "type": "object",
@@ -202,6 +215,7 @@ module FsUtils
         Definition.new(
           name: Names::READ,
           description: "Read a text file, whole or by line range. Output is line-numbered by default so you can cite regions back to #{Names::GREP} or a follow-up read without recounting. Check `truncated`: a long file returns its first page plus a notice telling you how to continue. `total_lines` is always the file's real length, so you can tell how much you have not seen. A page is capped at #{config.read.max_bytes} bytes however many lines you ask for, and files over #{config.read.max_file_bytes} bytes are refused outright. All paths are relative to the workspace root.",
+          capabilities: Capability::WorkspaceRead,
           schema: <<-JSON
             {
               "type": "object",
@@ -234,6 +248,7 @@ module FsUtils
         Definition.new(
           name: Names::WRITE,
           description: "Create a text file, or replace one in full. Writes exactly what you supply — no trailing newline is added and nothing is normalised. Replacing an existing file requires overwrite: true, and the call is refused otherwise so a file you did not know was there cannot be destroyed. Missing parent directories are created and reported back; an unexpected entry in parents_created usually means a mistyped path. For a partial change use #{Names::REPLACE} instead. Content over #{config.write.max_content_bytes} bytes is refused. All paths are relative to the workspace root.",
+          capabilities: Capability::WorkspaceWrite,
           schema: <<-JSON
             {
               "type": "object",
@@ -262,6 +277,7 @@ module FsUtils
         Definition.new(
           name: Names::REPLACE,
           description: "Replace a literal string in a text file. Matching is exact — no regular expressions, no fuzzy matching — including all whitespace and indentation, so copy the text from a read of the file rather than retyping it. By default old_string must occur exactly once; if it occurs several times the call is refused and every location is reported, so extend old_string with surrounding context or set replace_all. The result returns each change in context -- at most #{config.replace.max_hunks} of them -- so you can confirm it landed where you meant without reading the file again. Files over #{config.replace.max_file_bytes} bytes are refused. All paths are relative to the workspace root.",
+          capabilities: Capability::WorkspaceRead | Capability::WorkspaceWrite,
           schema: <<-JSON
             {
               "type": "object",
@@ -294,6 +310,7 @@ module FsUtils
         Definition.new(
           name: Names::FETCH_AS_MD,
           description: "Fetch a URL and return it as Markdown. An HTML page is converted to Markdown; a site that serves Markdown is used as it is; any other text -- CSV, JSON, XML, CSS, SVG, plain text -- is returned inside a fenced code block tagged with its type. Short results are returned in `content`. A longer one is written to a file in the workspace and its location and content are described instead, including an excerpt and a `toc` whose line numbers go to #{Names::READ} as `offset` and `limit`. A stored file opens with a front matter block naming the page it came from. Check `truncated` and `notice`: content over #{config.fetch.max_content_bytes} bytes is cut short. Only text is read.",
+          capabilities: Capability::Network | Capability::ScratchWrite,
           schema: <<-JSON
             {
               "type": "object",

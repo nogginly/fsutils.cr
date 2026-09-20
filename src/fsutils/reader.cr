@@ -9,7 +9,7 @@ module FsUtils
   # ```
   #
   # Like `Find` and `Grep`, this raises on caller error and knows nothing about
-  # sandboxes or JSON. It also has no notion of whether a range was *asked for*
+  # workspacees or JSON. It also has no notion of whether a range was *asked for*
   # or defaulted — that is a judgement about intent, and it belongs to the tool
   # layer.
   class Reader

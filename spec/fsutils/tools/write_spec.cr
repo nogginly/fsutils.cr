@@ -107,7 +107,7 @@ describe "FsUtils::Tools#write" do
       with_write_tools do |tools, _, base|
         json = write_json(tools.write(path: "../outside/x.txt", content: "x\n"))
 
-        json["error"]["code"].as_s.should eq "path_outside_sandbox"
+        json["error"]["code"].as_s.should eq "path_outside_workspace"
         File.exists?(File.join(base, "outside", "x.txt")).should be_false
       end
     end

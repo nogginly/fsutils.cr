@@ -10,7 +10,7 @@ module FsUtils
     # policy.check!(URI.parse("https://example.com/docs"))
     # ```
     #
-    # The rule is **resolve, then compare**, which is the sandbox's rule
+    # The rule is **resolve, then compare**, which is the workspace's rule
     # applied to a host instead of a path. A name is checked against the
     # lists, then looked up, and every address it answers with is checked in
     # turn -- a name under the caller's control can point at anything, and
