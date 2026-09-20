@@ -1,5 +1,6 @@
 require "json"
 
+require "./tools/capability"
 require "./tools/config"
 require "./tools/envelope"
 require "./tools/workspace"

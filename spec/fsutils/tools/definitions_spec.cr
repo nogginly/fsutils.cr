@@ -34,6 +34,50 @@ describe FsUtils::Tools::Definition do
     end
   end
 
+  describe "capabilities" do
+    it "classifies every tool as touching something" do
+      # The required field makes an unclassified tool impossible to write; this
+      # catches the other way of saying nothing, which still compiles.
+      FsUtils::Tools::Definitions.all.each do |tool|
+        tool.capabilities.none?.should be_false
+      end
+    end
+
+    it "does not change with the configuration" do
+      # What a tool touches is fixed; what it is permitted is the host's
+      # business. An allowlist that refuses every URL does not stop
+      # fetch_as_markdown being the tool that leaves the machine.
+      config = FsUtils::Tools::Config.new
+      config.fetch.allowed_hosts = [] of String
+
+      FsUtils::Tools::Definitions.all(config).map(&.capabilities)
+        .should eq FsUtils::Tools::Definitions.all.map(&.capabilities)
+    end
+
+    it "separates writing the user's files from spilling to scratch" do
+      caps = FsUtils::Tools::Definitions.all.to_h { |tool| {tool.name, tool.capabilities} }
+
+      caps[FsUtils::Tools::Names::WRITE].workspace_write?.should be_true
+      caps[FsUtils::Tools::Names::WRITE].scratch_write?.should be_false
+
+      caps[FsUtils::Tools::Names::FETCH_AS_MD].scratch_write?.should be_true
+      caps[FsUtils::Tools::Names::FETCH_AS_MD].workspace_write?.should be_false
+    end
+
+    it "declares WorkspaceRead only where workspace content reaches the caller" do
+      caps = FsUtils::Tools::Definitions.all.to_h { |tool| {tool.name, tool.capabilities} }
+
+      # text_replace hands back the lines around each hunk; write reports a
+      # path and a byte count and nothing of what was there.
+      caps[FsUtils::Tools::Names::REPLACE].workspace_read?.should be_true
+      caps[FsUtils::Tools::Names::WRITE].workspace_read?.should be_false
+
+      # The network is not the workspace. Reading the spilled file back is
+      # read_text_file's capability, not this tool's.
+      caps[FsUtils::Tools::Names::FETCH_AS_MD].workspace_read?.should be_false
+    end
+  end
+
   describe "the parameter schema" do
     it "is a JSON object with properties and required, and no bundled metadata" do
       FsUtils::Tools::Definitions.all.each do |tool|
