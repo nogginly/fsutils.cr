@@ -2,7 +2,7 @@ require "json"
 
 require "./tools/config"
 require "./tools/envelope"
-require "./tools/sandbox"
+require "./tools/workspace"
 require "./tools/scratch"
 require "./tools/read"
 require "./tools/write"
@@ -16,7 +16,7 @@ module FsUtils
   #
   # The helpers stream, are typed, and raise on caller error — right for
   # trusted local code. This layer does the opposite, because its caller is a
-  # language model: it confines every path to a sandbox, buffers results,
+  # language model: it confines every path to a workspace, buffers results,
   # bounds the size of what it returns, and **never raises**.
   #
   # ```
@@ -109,7 +109,11 @@ module FsUtils
       end
     end
 
-    getter sandbox : Sandbox
+    # The confinement itself is internal: a host supplies the root and reads
+    # relative paths back out of every response, so reaching the object adds
+    # nothing it cannot already do.
+    private getter workspace : Workspace
+
     getter config : Config
     getter scratch : Scratch
 
@@ -117,8 +121,8 @@ module FsUtils
 
     def initialize(root : String, @config : Config = Config.new)
       @config.validate!
-      @sandbox = Sandbox.new(root)
-      @scratch = Scratch.new(@sandbox, @config.scratch.to_settings(@config.max_output_bytes))
+      @workspace = Workspace.new(root)
+      @scratch = Scratch.new(@workspace, @config.scratch.to_settings(@config.max_output_bytes))
     end
 
     def max_output_bytes : Int32
@@ -196,7 +200,7 @@ module FsUtils
       include_hidden : Bool? = nil,
       timeout_seconds : Float64? = nil,
     ) : SearchResponse(FindResult)
-      roots = @sandbox.resolve_all(paths)
+      roots = @workspace.resolve_all(paths)
       if missing = missing_root(roots)
         return SearchResponse(FindResult).failure(*not_found(missing))
       end
@@ -216,7 +220,7 @@ module FsUtils
         settings: settings,
       ).run do |match|
         results << FindResult.new(
-          path: @sandbox.relative(match.path),
+          path: @workspace.relative(match.path),
           type: match.type.to_s.downcase,
           size: match.size,
           modified: modified_at(match),
@@ -263,7 +267,7 @@ module FsUtils
       include_hidden : Bool? = nil,
       timeout_seconds : Float64? = nil,
     ) : SearchResponse(GrepResult)
-      roots = @sandbox.resolve_all(paths)
+      roots = @workspace.resolve_all(paths)
       if missing = missing_root(roots)
         return SearchResponse(GrepResult).failure(*not_found(missing))
       end
@@ -285,7 +289,7 @@ module FsUtils
         settings: settings,
       ).run do |match|
         results << GrepResult.new(
-          path: @sandbox.relative(match.path),
+          path: @workspace.relative(match.path),
           line: match.line_number,
           column: match.column,
           text: match.line,
@@ -327,7 +331,7 @@ module FsUtils
     # The `not_found` triple, ready to splat into any response's `failure`.
     private def not_found(path : String) : {String, String, String}
       {ErrorCode::NOT_FOUND,
-       "#{@sandbox.relative(path)} does not exist",
+       "#{@workspace.relative(path)} does not exist",
        not_found_suggestion(path)}
     end
 
@@ -345,7 +349,7 @@ module FsUtils
 
     # Suggestions are written once and shared, so `find` and `grep` do not
     # drift into telling a model two different things about the same failure.
-    private def outside_sandbox_suggestion : String
+    private def outside_workspace_suggestion : String
       "Paths must stay inside the workspace. Use a path relative to its root, \
 without `..`, and do not follow symlinks out of it."
     end

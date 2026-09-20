@@ -50,7 +50,7 @@ module FsUtils
       content : String,
       overwrite : Bool = false,
     ) : WriteResponse
-      resolved = @sandbox.resolve(path)
+      resolved = @workspace.resolve(path)
 
       if ::File.exists?(resolved) && !overwrite
         return file_exists(resolved)
@@ -61,11 +61,11 @@ module FsUtils
 
       WriteResponse.new(
         ok: true,
-        path: @sandbox.relative(resolved),
+        path: @workspace.relative(resolved),
         created: result.created,
         bytes_written: result.bytes_written,
         lines: result.lines,
-        parents_created: result.parents_created.map { |dir| @sandbox.relative(dir) },
+        parents_created: result.parents_created.map { |dir| @workspace.relative(dir) },
         notice: write_notice(result, previous),
       )
     rescue ex : FsUtils::Error | ArgumentError
@@ -76,7 +76,7 @@ module FsUtils
       lines = count_lines(resolved)
       WriteResponse.failure(
         ErrorCode::FILE_EXISTS,
-        "#{@sandbox.relative(resolved)} already exists (#{lines} lines)",
+        "#{@workspace.relative(resolved)} already exists (#{lines} lines)",
         "Set `overwrite: true` to replace it, or use #{Names::REPLACE} for a partial change.")
     end
 

@@ -84,7 +84,7 @@ module FsUtils
     # inline only if it fits `max_output_bytes`. A page of boilerplate shrinks
     # under conversion and a page of dense tables grows.
     #
-    # The network is not the sandbox, and this is the one tool that leaves the
+    # The network is not the workspace, and this is the one tool that leaves the
     # machine. `Config::Fetch` carries its own guard: hosts are resolved and
     # every address checked, on the first request and on every redirect.
     def fetch_as_markdown(url : String) : MarkdownResponse

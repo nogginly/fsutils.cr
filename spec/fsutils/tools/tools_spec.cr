@@ -131,7 +131,7 @@ describe FsUtils::Tools do
     end
   end
 
-  describe "the sandbox" do
+  describe "the workspace" do
     it "refuses a path that climbs out" do
       with_tools do |tools, _, _|
         json = parse(tools.grep(pattern: "TODO", paths: ["../outside"]))
@@ -166,7 +166,7 @@ describe FsUtils::Tools do
       end
     end
 
-    it "tells the caller what the sandbox rule is" do
+    it "tells the caller what the workspace rule is" do
       with_tools do |tools, _, _|
         json = parse(tools.grep(pattern: "TODO", paths: ["../outside"]))
         json["error"]["suggestion"].as_s.should contain "workspace"

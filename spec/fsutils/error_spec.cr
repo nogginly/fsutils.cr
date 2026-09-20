@@ -46,9 +46,9 @@ describe FsUtils::Error do
       rescued.code.should eq FsUtils::ErrorCode::NOT_FOUND
     end
 
-    it "puts the sandbox escape in the same family" do
+    it "puts the workspace escape in the same family" do
       # So no `case` has to remember to test it before FsUtils::Error.
-      FsUtils::Tools::Sandbox::Escape.new("out").code
+      FsUtils::Tools::Workspace::Escape.new("out").code
         .should eq FsUtils::ErrorCode::OUTSIDE_SANDBOX
     end
   end

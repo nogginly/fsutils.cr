@@ -6,11 +6,11 @@ private def with_scratch(max_inline_bytes : Int32 = 32_000, max_headings : Int32
   ::File.write(::File.join(root, "src", "a.cr"), "puts 1\n")
 
   begin
-    sandbox = FsUtils::Tools::Sandbox.new(root)
+    workspace = FsUtils::Tools::Workspace.new(root)
     settings = FsUtils::Tools::Scratch::Settings.new
     settings.max_inline_bytes = max_inline_bytes
     settings.max_headings = max_headings
-    yield FsUtils::Tools::Scratch.new(sandbox, settings), root
+    yield FsUtils::Tools::Scratch.new(workspace, settings), root
   ensure
     FileUtils.rm_rf(root)
   end
@@ -28,7 +28,7 @@ describe FsUtils::Tools::Scratch do
     end
   end
 
-  it "writes content past the threshold, inside the sandbox" do
+  it "writes content past the threshold, inside the workspace" do
     with_scratch(max_inline_bytes: 100) do |scratch, root|
       stored = scratch.hold("https://example.com/a", LONG, {} of String => String)
         .as(FsUtils::Tools::Scratch::Stored)
