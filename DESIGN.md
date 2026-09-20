@@ -12,7 +12,7 @@ what you *didn't* show me. Trying to serve both from one class produces somethin
 that serves neither, so the shard is two layers.
 
 ```
-FsUtils::Tools                              # sandboxed, buffered, JSON, never raises
+FsUtils::Tools                              # workspace-confined, buffered, JSON, never raises
       │
       ├── Find   Grep                       # searching: streaming, typed, may raise
       │     └──────┬──────┘
@@ -376,8 +376,8 @@ kind, and `FsUtils::Text` for questions about content.
 ## The text helpers
 
 `Reader`, `Writer` and `Replacer` read and edit one file at a time. They share
-the searching side's contract — raise on caller error, know nothing of sandboxes
-or JSON — and share `FsUtils::Text` for the two questions any of them may need
+the searching side's contract — raise on caller error, know nothing of workspace
+confinement or JSON — and share `FsUtils::Text` for the two questions any of them may need
 to ask about content: is this binary, and is this line absurdly long.
 
 They do not share `Walker`, because none of them traverses anything.
@@ -509,7 +509,7 @@ surprising enough to be worth knowing.
 
 The agent-facing layer: methods that call a helper, buffer the results, and
 serialise them. An instance rather than module-level singletons, because the
-sandbox root is state that must be set once and honoured on every call — a
+workspace root is state that must be set once and honoured on every call — a
 global `configure` would make it ambient, and ambient is exactly what a
 security boundary must not be.
 
@@ -530,7 +530,7 @@ response type, not a serialised string. A host writes
 serialised. Nil fields are **omitted** rather than emitted as `null`, so a clean
 result is a small one and a host can test for a key's presence.
 
-### The sandbox
+### The workspace
 
 **This layer refuses to leave its root.** The helpers are for trusted local
 callers and take you wherever you point them; the tool layer assumes its caller
@@ -548,7 +548,7 @@ config:
 flowchart TD
     A[Requested path from agent] --> B{{Absolute?}}
     B -- yes --> C[Use as-is]
-    B -- no --> D[Join onto sandbox root]
+    B -- no --> D[Join onto workspace root]
     C --> E[File.expand_path]
     D --> E
     E --> F{{Path exists?}}
@@ -556,7 +556,7 @@ flowchart TD
     F -- yes --> H[File.realpath]
     G --> H
     H --> I{{"realpath == root, or<br/>starts with root + separator?"}}
-    I -- no --> X["ok: false<br/>error: path_outside_sandbox"]
+    I -- no --> X["ok: false<br/>error: path_outside_workspace"]
     I -- yes --> Y[Proceed]
 
     style X stroke:#c62828,stroke-width:2px
@@ -570,14 +570,27 @@ Three details that matter:
   in `Grep#relative`, which is what drew attention to it.
 - **Resolve before comparing, and resolve the nearest *existing* ancestor** when
   the path itself does not exist, so a lookup of a missing file inside the
-  sandbox is a clean "not found" rather than a resolution error.
+  workspace is a clean "not found" rather than a resolution error.
 - **`follow_symlinks` is forced off** unless the caller explicitly enables it,
   and even then every resolved directory is re-checked against the root. A
-  symlink inside the sandbox pointing out of it is the obvious escape.
+  symlink inside the workspace pointing out of it is the obvious escape.
 
-Paths in the response are returned relative to the sandbox root. The agent never
-sees the absolute layout of the host, which is both a small security win and a
-meaningful token saving.
+Paths in the response are returned relative to the workspace root. The agent
+never sees the absolute layout of the host, which is both a small security win
+and a meaningful token saving.
+
+**It is a workspace, not a sandbox.** It was called the latter until 0.4.0, and
+the word was wrong in two directions. A sandbox is disposable by connotation,
+and what this fence surrounds is a user's real, durable work -- the point is
+that the contents matter, which is why nothing may leave. And the shard already
+has a genuinely disposable area, `Scratch`, so the connotation was attached to
+the wrong one of the two. The rename also settled an inconsistency the code had
+carried from the start: every tool description says "relative to the workspace
+root" and none has ever said "sandbox", so the published surface had picked the
+better word before the Crystal API did. The error code moved with it --
+`path_outside_workspace` -- because that string is part of what a model reads,
+and a code using a word its own descriptions never use is a small, real
+incoherence in the model's input.
 
 **One limitation, stated rather than hidden.** Resolving a path and then reading
 it is not atomic. A symlink swapped between the two — by another process on the
@@ -796,7 +809,7 @@ contributor it becomes the right answer. Until then the cost is one runtime
 dependency, `html5`, for consumers who only wanted `grep`.
 
 What it does bring is a second confinement problem, and the useful observation
-is that it has the same shape as the first. The sandbox rule is **resolve, then
+is that it has the same shape as the first. The workspace rule is **resolve, then
 compare**, never validate the string. For a URL: check the name against the
 lists, resolve it, and check every address it answers with. A name under the
 caller's control can point anywhere, and answering with several addresses of
@@ -1113,7 +1126,7 @@ The log, when it comes, should be an interface a host supplies rather than
 machinery this shard owns — and nilable, so the guards read "if a session is
 present, check". State that outlives a call is the host's to manage.
 
-One more thing the writing tools change. The TOCTOU gap recorded in the sandbox
+One more thing the writing tools change. The TOCTOU gap recorded in the workspace
 section was assessed when everything here was read-only, and writes alter the
 calculation: the same race now means resolving a path and then *writing through*
 a symlink swapped in behind you. Temp-file-and-rename protects against a partial
